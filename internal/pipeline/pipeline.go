@@ -16,15 +16,20 @@ type ChatFn func(ctx context.Context, messages []ollama.Message) (string, error)
 // are corrected based on the hint context.
 func RunHinted(ctx context.Context, raw, hint string, chatFn ChatFn) (string, error) {
 	var systemPrompt strings.Builder
-	systemPrompt.WriteString("You are an ASR correction assistant. ")
-	systemPrompt.WriteString("Correct any speech-to-text errors in the transcription, ")
-	systemPrompt.WriteString("especially for technical terms, task IDs, project names, and file paths.\n")
+	systemPrompt.WriteString("You are an ASR correction assistant.\n\n")
+	systemPrompt.WriteString("## Instructions\n")
+	systemPrompt.WriteString("The hint below contains a '## Known Entities' section.\n")
+	systemPrompt.WriteString("For each entry in that section formatted as `spoken-form: canonical-form`,\n")
+	systemPrompt.WriteString("replace any occurrence of the spoken-form in the transcription\n")
+	systemPrompt.WriteString("with the exact canonical spelling.\n")
+	systemPrompt.WriteString("Apply all substitutions first, then fix remaining grammar.\n")
+	systemPrompt.WriteString("Return only the corrected text, nothing else.\n")
 	if hint != "" {
-		systemPrompt.WriteString("\nContext (use this to correct ASR errors):\n")
+		systemPrompt.WriteString("\n")
 		systemPrompt.WriteString(hint)
 	}
 
-	userMsg := fmt.Sprintf("Correct the ASR transcription. Return only the corrected text, nothing else.\n\nTranscription: %s", raw)
+	userMsg := fmt.Sprintf("Transcription: %s", raw)
 
 	messages := []ollama.Message{
 		{Role: "system", Content: systemPrompt.String()},

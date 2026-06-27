@@ -103,3 +103,81 @@ func TestBuildContextEmptyBacklog(t *testing.T) {
 	result := BuildContext(tmpDir, func(_ string) string { return "" })
 	_ = result
 }
+
+func TestBuildContextKnownEntitiesSection(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
+	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
+	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := BuildContext(tmpDir, func(_ string) string { return "" })
+	if !strings.Contains(result, "## Known Entities") {
+		t.Errorf("expected '## Known Entities' in result, got: %q", result)
+	}
+}
+
+func TestBuildContextKnownEntitiesHasTaskID(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
+	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
+	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := BuildContext(tmpDir, func(_ string) string { return "" })
+	if !strings.Contains(result, "task one: TASK-1") {
+		t.Errorf("expected 'task one: TASK-1' in Known Entities, got: %q", result)
+	}
+}
+
+func TestBuildContextKnownEntitiesHasProjectName(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	result := BuildContext(tmpDir, func(_ string) string { return "" })
+	if !strings.Contains(result, "vocal: voci") {
+		t.Errorf("expected 'vocal: voci' in Known Entities, got: %q", result)
+	}
+}
+
+func TestBuildContextKnownEntitiesHasPackagePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	result := BuildContext(tmpDir, func(_ string) string { return "" })
+	for _, pkg := range []string{"internal/pipeline", "internal/context", "internal/asr"} {
+		if !strings.Contains(result, pkg) {
+			t.Errorf("expected %q in Known Entities, got: %q", pkg, result)
+		}
+	}
+}
+
+func TestBuildContextKnownEntitiesBeforeActiveTasks(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
+	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
+	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := BuildContext(tmpDir, func(_ string) string { return "" })
+	idxEntities := strings.Index(result, "## Known Entities")
+	idxTasks := strings.Index(result, "## Active Tasks")
+	if idxEntities < 0 {
+		t.Fatal("'## Known Entities' not found")
+	}
+	if idxTasks < 0 {
+		t.Fatal("'## Active Tasks' not found")
+	}
+	if idxEntities >= idxTasks {
+		t.Errorf("expected '## Known Entities' before '## Active Tasks', got positions %d and %d", idxEntities, idxTasks)
+	}
+}

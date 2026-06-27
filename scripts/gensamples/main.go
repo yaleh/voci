@@ -11,41 +11,15 @@ import (
 	"github.com/yalehu/voci/internal/config"
 )
 
-// samples contains developer voice commands with typical ASR error scenarios.
-var samples = []struct {
-	filename string
-	text     string
-}{
-	{
-		"sample-01.wav",
-		// Task ID confusion: "task one" → TASK-1
-		"fix the task one login bug in the vocal project",
-	},
-	{
-		"sample-02.wav",
-		// Project name confusion: "vocal" → voci
-		"add logging to the vocal C L I command handler",
-	},
-	{
-		"sample-03.wav",
-		// Path phonetic similarity: "inter nul context" → internal/context
-		"update the context builder in inter nul context builder dot go",
-	},
-	{
-		"sample-04.wav",
-		// Ambiguous instruction
-		"make it faster somehow",
-	},
-	{
-		"sample-05.wav",
-		// Combined confusion: task ID + project name
-		"rewrite the task three handler in the vocal package to use channels",
-	},
-}
-
 const apiURL = "https://api.siliconflow.cn/v1/audio/speech"
 
 func main() {
+	cases, err := LoadCases("testdata/testcases.json")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load cases error: %v\n", err)
+		os.Exit(1)
+	}
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
@@ -55,6 +29,15 @@ func main() {
 	if err := os.MkdirAll("testdata", 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "mkdir error: %v\n", err)
 		os.Exit(1)
+	}
+
+	samples := make([]struct {
+		filename string
+		text     string
+	}, len(cases))
+	for i, c := range cases {
+		samples[i].filename = c.ID + ".wav"
+		samples[i].text = c.TTSInput
 	}
 
 	for _, s := range samples {

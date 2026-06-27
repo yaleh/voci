@@ -1,0 +1,17 @@
+[
+  {"id":"sample-01","tts_input":"fix the task one login bug in the vocal project","raw_asr":"Fix the task wang about in the vocal project.","expected_hinted":"fix the TASK-1 login bug in the voci project","expected_entities":["TASK-1","voci"]},
+  {"id":"sample-02","tts_input":"add logging to the vocal C L I command handler","raw_asr":"At the logging to the vocal sea l i command","expected_hinted":"add logging to the voci CLI command handler","expected_entities":["voci","CLI"]},
+  {"id":"sample-03","tts_input":"update the context builder in inter nul context builder dot go","raw_asr":"Update the context builder in internew context builder go.","expected_hinted":"update the context builder in internal/context/builder.go","expected_entities":["internal/context"]},
+  {"id":"sample-04","tts_input":"make it faster somehow","raw_asr":"Make it faster somehow.","expected_hinted":"","expected_entities":[]},
+  {"id":"sample-05","tts_input":"rewrite the task three handler in the vocal package to use channels","raw_asr":"Reeled the task three handler in a vocal package to use channels.","expected_hinted":"rewrite the TASK-3 handler in the voci package to use channels","expected_entities":["TASK-3","voci"]},
+  {"id":"sample-06","tts_input":"task five and task eight need to be merged before release","raw_asr":"","expected_hinted":"TASK-5 and TASK-8 need to be merged before release","expected_entities":["TASK-5","TASK-8"]},
+  {"id":"sample-07","tts_input":"run the vocal command with dash dash file option","raw_asr":"","expected_hinted":"run the voci command with --file option","expected_entities":["voci","--file"]},
+  {"id":"sample-08","tts_input":"pass the dash dash iterate flag to the vocal binary","raw_asr":"","expected_hinted":"pass the --iterate flag to the voci binary","expected_entities":["voci","--iterate"]},
+  {"id":"sample-09","tts_input":"look at the inter nul pipeline package for the chat function","raw_asr":"","expected_hinted":"look at the internal/pipeline package for the chat function","expected_entities":["internal/pipeline"]},
+  {"id":"sample-10","tts_input":"fix the inter nul a s r module transcription timeout","raw_asr":"","expected_hinted":"fix the internal/asr module transcription timeout","expected_entities":["internal/asr"]},
+  {"id":"sample-11","tts_input":"the run hinted function needs a new system prompt","raw_asr":"","expected_hinted":"the RunHinted function needs a new system prompt","expected_entities":["RunHinted"]},
+  {"id":"sample-12","tts_input":"call build context before the pipeline stage","raw_asr":"","expected_hinted":"call BuildContext before the pipeline stage","expected_entities":["BuildContext"]},
+  {"id":"sample-13","tts_input":"task six is blocked by task two and task eight","raw_asr":"","expected_hinted":"TASK-6 is blocked by TASK-2 and TASK-8","expected_entities":["TASK-6","TASK-2","TASK-8"]},
+  {"id":"sample-14","tts_input":"task eight has the prompt changes for run hinted","raw_asr":"","expected_hinted":"TASK-8 has the prompt changes for RunHinted","expected_entities":["TASK-8","RunHinted"]},
+  {"id":"sample-15","tts_input":"update run hinted in inter nul pipeline to handle task four edge case","raw_asr":"","expected_hinted":"update RunHinted in internal/pipeline to handle TASK-4 edge case","expected_entities":["RunHinted","internal/pipeline","TASK-4"]}
+]

@@ -1,0 +1,125 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+
+	"github.com/yalehu/voci/internal/config"
+)
+
+// samples contains developer voice commands with typical ASR error scenarios.
+var samples = []struct {
+	filename string
+	text     string
+}{
+	{
+		"sample-01.wav",
+		// Task ID confusion: "task one" → TASK-1
+		"fix the task one login bug in the vocal project",
+	},
+	{
+		"sample-02.wav",
+		// Project name confusion: "vocal" → voci
+		"add logging to the vocal C L I command handler",
+	},
+	{
+		"sample-03.wav",
+		// Path phonetic similarity: "inter nul context" → internal/context
+		"update the context builder in inter nul context builder dot go",
+	},
+	{
+		"sample-04.wav",
+		// Ambiguous instruction
+		"make it faster somehow",
+	},
+	{
+		"sample-05.wav",
+		// Combined confusion: task ID + project name
+		"rewrite the task three handler in the vocal package to use channels",
+	},
+}
+
+const apiURL = "https://api.siliconflow.cn/v1/audio/speech"
+
+func main() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := os.MkdirAll("testdata", 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "mkdir error: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, s := range samples {
+		outPath := "testdata/" + s.filename
+		if _, err := os.Stat(outPath); err == nil {
+			fmt.Printf("skip %s (already exists)\n", outPath)
+			continue
+		}
+
+		fmt.Printf("generating %s ...\n", outPath)
+		audioData, err := generateSpeech(cfg.SiliconFlowKey, s.text)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "TTS error for %s: %v\n", s.filename, err)
+			os.Exit(1)
+		}
+
+		if err := os.WriteFile(outPath, audioData, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "write error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  wrote %d bytes to %s\n", len(audioData), outPath)
+	}
+
+	fmt.Println("done")
+}
+
+type speechRequest struct {
+	Model          string  `json:"model"`
+	Input          string  `json:"input"`
+	Voice          string  `json:"voice"`
+	ResponseFormat string  `json:"response_format"`
+	Speed          float64 `json:"speed"`
+}
+
+func generateSpeech(apiKey, text string) ([]byte, error) {
+	reqBody := speechRequest{
+		Model:          "FunAudioLLM/CosyVoice2-0.5B",
+		Input:          text,
+		Voice:          "FunAudioLLM/CosyVoice2-0.5B:claire",
+		ResponseFormat: "wav",
+		Speed:          1.0,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, body)
+	}
+
+	return io.ReadAll(resp.Body)
+}

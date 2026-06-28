@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/yalehu/voci/internal/adapter"
 	"github.com/yalehu/voci/internal/asr"
@@ -34,12 +35,50 @@ func main() {
 		}
 		return vocicontext.BuildContextWithSource(root, src, nil)
 	})
-	if err := run(os.Args[1:], os.Stdout, os.Stdin,
+	if err := dispatch(os.Args[1:], os.Stdout, os.Stdin,
 		nil, nil, nil, nil, nil, nil, nil, nil,
 		buildHintFn, ccAdapter.Deliver, nil, nil,
 	); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
+	}
+}
+
+// dispatch routes bare subcommands (serve, mcp, once) to run(), translating them
+// to the equivalent legacy flags. Leading-flag args fall through to run() verbatim.
+func dispatch(
+	args []string,
+	stdout io.Writer,
+	stdin io.Reader,
+	transcribeFn TranscribeFn,
+	hintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error),
+	rewriteFnOpt RewriteFn,
+	classifyFn ClassifyFn,
+	gateFn GateFn,
+	executeFn ExecuteFn,
+	injectFn InjectFn,
+	startMCPServerFn StartMCPServerFn,
+	buildHintFn BuildHintFn,
+	deliverFn func(intent.ActionProposal) error,
+	startDaemonFn StartDaemonFn,
+	startServeFn StartServeFn,
+) error {
+	fwd := func(a []string) error {
+		return run(a, stdout, stdin, transcribeFn, hintedFn, rewriteFnOpt, classifyFn, gateFn, executeFn, injectFn, startMCPServerFn, buildHintFn, deliverFn, startDaemonFn, startServeFn)
+	}
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return fwd(args)
+	}
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "serve":
+		return fwd(append([]string{"--serve"}, rest...))
+	case "mcp":
+		return fwd(append([]string{"--session=integrated"}, rest...))
+	case "once":
+		return fwd(rest)
+	default:
+		return fmt.Errorf("unknown subcommand %q; use serve, mcp, or once", sub)
 	}
 }
 
@@ -171,6 +210,7 @@ func run(
 
 	// --daemon: start HTTP daemon accepting audio uploads, no --file required
 	if *daemonFlag {
+		fmt.Fprintln(stdout, "voci: --daemon is deprecated; use 'voci serve' (see TASK-16)")
 		eventsPath := *eventsPathFlag
 		if eventsPath == "" {
 			home, err := os.UserHomeDir()

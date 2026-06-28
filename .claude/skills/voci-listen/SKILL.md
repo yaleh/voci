@@ -1,11 +1,11 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor with command=\"voci --serve\" (the TASK-16 Monitor-host voice producer). voci serve's stdout emits one JSON event line per utterance; each line wakes the session, the Rewritten field is extracted and executed inline as the next in-session instruction. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via self-re-invoke hint in the Monitor description. Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with command=\"voci serve\" (the TASK-16 Monitor-host voice producer). voci serve's stdout emits one JSON event line per utterance; each line wakes the session, the Rewritten field is extracted and executed inline as the next in-session instruction. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via self-re-invoke hint in the Monitor description. Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop
 contracts:
   - grep: "Monitor(persistent=true"
     target: self
-  - grep: 'command="voci --serve"'
+  - grep: 'command="voci serve"'
     target: self
   - grep: "description="
     target: self
@@ -66,7 +66,7 @@ listenLoop() = {
   -- On wake-up: extract Rewritten and execute it inline in the current session.
   -- The description carries a re-invoke hint for cross-/clear recovery.
   event: Monitor(persistent=true,
-           command="voci --serve",
+           command="voci serve",
            description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"),
 
   if (stopSentinel()):
@@ -125,7 +125,7 @@ After `stopStaleMon` and the sentinel check, arm the persistent Monitor:
 
 ```
 Monitor(persistent=true,
-  command="voci --serve",
+  command="voci serve",
   description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"
 )
 ```

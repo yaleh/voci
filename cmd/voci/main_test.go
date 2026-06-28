@@ -699,3 +699,150 @@ func TestRun_ServeUsesStdoutSink(t *testing.T) {
 		t.Errorf("expected eventWriter to be stdout, got %T", capturedWriter)
 	}
 }
+
+// ---- Phase A: dispatch subcommand routing ----
+
+func TestDispatch_ServeSubcommand(t *testing.T) {
+	setTestEnv(t)
+
+	serveCalled := false
+	var calledAddr string
+	startServeFn := StartServeFn(func(addr string, eventWriter io.Writer, buildHintFn func() string) error {
+		serveCalled = true
+		calledAddr = addr
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := dispatch(
+		[]string{"serve"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, startServeFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !serveCalled {
+		t.Error("expected startServeFn to be called for 'voci serve'")
+	}
+	if !strings.Contains(calledAddr, ":9474") {
+		t.Errorf("expected addr to contain :9474, got: %s", calledAddr)
+	}
+}
+
+func TestDispatch_McpSubcommand(t *testing.T) {
+	setTestEnv(t)
+
+	mcpCalled := false
+	var calledAddr string
+	startMCPServerFn := StartMCPServerFn(func(addr string) error {
+		mcpCalled = true
+		calledAddr = addr
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := dispatch(
+		[]string{"mcp"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		fakeClassify, fakeGateConfirm, fakeExecute, nil, startMCPServerFn, nil, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !mcpCalled {
+		t.Error("expected startMCPServerFn to be called for 'voci mcp'")
+	}
+	if !strings.Contains(calledAddr, ":9473") {
+		t.Errorf("expected addr to contain :9473, got: %s", calledAddr)
+	}
+}
+
+func TestDispatch_OnceSubcommand(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	var stdout bytes.Buffer
+	err := dispatch(
+		[]string{"once", "--file", wavPath, "--no-gate"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "RAW") {
+		t.Errorf("expected RAW in output, got: %q", stdout.String())
+	}
+}
+
+func TestDispatch_LeadingFlagFallsBackToLegacy(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	var stdout bytes.Buffer
+	err := dispatch(
+		[]string{"--file", wavPath, "--no-gate"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "RAW") {
+		t.Errorf("expected RAW in output, got: %q", stdout.String())
+	}
+}
+
+func TestDispatch_UnknownSubcommandErrors(t *testing.T) {
+	var stdout bytes.Buffer
+	err := dispatch(
+		[]string{"bogus"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+	for _, word := range []string{"serve", "mcp", "once"} {
+		if !strings.Contains(err.Error(), word) {
+			t.Errorf("expected error to mention %q, got: %v", word, err)
+		}
+	}
+}
+
+// ---- Phase B: --daemon deprecation notice ----
+
+func TestRun_DaemonPrintsDeprecationNotice(t *testing.T) {
+	setTestEnv(t)
+
+	daemonCalled := false
+	startDaemonFn := StartDaemonFn(func(addr, eventsPath string, buildHintFn func() string) error {
+		daemonCalled = true
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--daemon"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		startDaemonFn, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !daemonCalled {
+		t.Error("expected startDaemonFn to be called after deprecation notice")
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "deprecat") {
+		t.Errorf("expected deprecation notice in stdout, got: %q", out)
+	}
+	if !strings.Contains(out, "voci serve") {
+		t.Errorf("expected 'voci serve' in deprecation notice, got: %q", out)
+	}
+}

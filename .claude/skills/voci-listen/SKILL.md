@@ -139,24 +139,14 @@ for each stdout line. As a Monitor sub-process, `voci serve` inherits the sessio
 ### extractInstruction (per-line handler)
 
 On each Monitor wake-up, the event payload is the raw line emitted by `voci serve` on stdout.
+Extracts the `Rewritten` field from the JSON (`rewritten` key in the Event struct); falls back to
+the raw line if the JSON is invalid or the field is empty.
 
 ```bash
 LINE="$1"   # raw line from voci serve stdout
 
-# Attempt JSON parse; fall back to raw string if not valid JSON
-INSTRUCTION=$(echo "$LINE" | python3 -c "
-import sys, json
-try:
-    obj = json.load(sys.stdin)
-    print(obj.get('Rewritten', '').strip())
-except Exception:
-    pass
-" 2>/dev/null)
-
-# Raw fallback: if Rewritten was empty or JSON parse failed, use the raw line
-if [ -z "$INSTRUCTION" ]; then
-  INSTRUCTION=$(echo "$LINE" | tr -d '\n')
-fi
+# Parse JSON and extract the Rewritten instruction field (see scripts/extract-instruction.py).
+INSTRUCTION=$(echo "$LINE" | python3 scripts/extract-instruction.py)
 
 echo "[voci-listen] instruction: $INSTRUCTION"
 ```

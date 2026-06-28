@@ -13,6 +13,7 @@ import (
 	vocicontext "github.com/yalehu/voci/internal/context"
 	"github.com/yalehu/voci/internal/executor"
 	"github.com/yalehu/voci/internal/gate"
+	"github.com/yalehu/voci/internal/inject"
 	"github.com/yalehu/voci/internal/intent"
 	"github.com/yalehu/voci/internal/ollama"
 	"github.com/yalehu/voci/internal/output"
@@ -20,7 +21,7 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil); err != nil {
+	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -32,6 +33,7 @@ type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.Ch
 type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
 type GateFn func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult
 type ExecuteFn func(proposal intent.ActionProposal) (string, error)
+type InjectFn func(text string) error
 
 // defaultCmdRunner runs an external command and returns its combined output.
 func defaultCmdRunner(name string, args ...string) (string, error) {
@@ -50,6 +52,7 @@ func run(
 	classifyFn ClassifyFn,
 	gateFn GateFn,
 	executeFn ExecuteFn,
+	injectFn InjectFn,
 ) error {
 	fs := flag.NewFlagSet("voci", flag.ContinueOnError)
 	fs.SetOutput(stdout)
@@ -57,6 +60,9 @@ func run(
 	fileFlag := fs.String("file", "", "path to audio WAV file (required)")
 	iterateFlag := fs.Bool("iterate", false, "enter iterative feedback loop after initial output")
 	noGateFlag := fs.Bool("no-gate", false, "skip human confirmation gate (test only)")
+	sessionFlag := fs.String("session", "separate", "session mode: separate|integrated")
+	inputFlag := fs.String("input", "preview", "input mode: preview|direct")
+	tmuxTargetFlag := fs.String("tmux-target", "", "tmux pane target (e.g. session:window.pane)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -113,6 +119,14 @@ func run(
 			return ex.Execute(p)
 		}
 	}
+	if injectFn == nil {
+		target := *tmuxTargetFlag
+		if target == "" {
+			target = os.Getenv("TMUX_PANE")
+		}
+		inj := inject.NewDefaultInjector(target)
+		injectFn = inj.Inject
+	}
 
 	// Stage 2: ASR transcription
 	raw, err := transcribeFn(ctx, cfg.SiliconFlowKey, *fileFlag, "")
@@ -147,6 +161,17 @@ func run(
 	proposal, err := classifyFn(ctx, rewritten, hint, chatFn)
 	if err != nil {
 		return fmt.Errorf("classify: %w", err)
+	}
+
+	// Stage 6b: Session/input routing
+	if *sessionFlag == "integrated" {
+		return fmt.Errorf("--session=integrated not yet implemented (see TASK-4.3)")
+	}
+	if *inputFlag == "direct" && (proposal.Kind == intent.KindDirectPrompt || proposal.Kind == intent.KindQuery) {
+		if injectFn != nil {
+			return injectFn(proposal.Rewritten)
+		}
+		return nil
 	}
 
 	// Stage 7: Human gate (skipped with --no-gate)

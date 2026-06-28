@@ -72,7 +72,7 @@ func TestCLIFileFlagPrintsRAW(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute)
+	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestCLIFileFlagPrintsHINTED(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute)
+	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCLIFileFlagPrintsREWRITTEN(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute)
+	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestCLINoFileExitsNonzero(t *testing.T) {
 	setTestEnv(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute)
+	err := run([]string{}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute, nil)
 	if err == nil {
 		t.Fatal("expected error for missing --file")
 	}
@@ -123,7 +123,7 @@ func TestCLIFileMissingExitsNonzero(t *testing.T) {
 	setTestEnv(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", "/nonexistent.wav"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute)
+	err := run([]string{"--file", "/nonexistent.wav"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute, nil)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -135,7 +135,7 @@ func TestCLIIterateFlagAccepted(t *testing.T) {
 
 	var stdout bytes.Buffer
 	// Empty stdin means iterate loop exits immediately; --no-gate skips interactive gate
-	err := run([]string{"--file", wavPath, "--iterate", "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute)
+	err := run([]string{"--file", wavPath, "--iterate", "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestRunFullPipelineWithGate(t *testing.T) {
 		[]string{"--file", wavPath},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		classifyFn, gateFn, executeFn,
+		classifyFn, gateFn, executeFn, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -208,7 +208,7 @@ func TestRunFullPipelineGateDiscard(t *testing.T) {
 		[]string{"--file", wavPath},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		fakeClassify, fakeGateDiscard, executeFn,
+		fakeClassify, fakeGateDiscard, executeFn, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -236,12 +236,205 @@ func TestCLINoGateFlagSkipsGate(t *testing.T) {
 		[]string{"--file", wavPath, "--no-gate"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		fakeClassify, gateFn, fakeExecute,
+		fakeClassify, gateFn, fakeExecute, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gateCalled {
 		t.Error("expected gateFn NOT to be called when --no-gate is set")
+	}
+}
+
+func TestRun_SessionFlag_Defaults(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--file", wavPath, "--no-gate"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		fakeClassify, nil, fakeExecute, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error with default session/input flags: %v", err)
+	}
+}
+
+func TestRun_InputDirect_KindDirectPrompt_SkipsGate(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	gateCalled := false
+	injectCalled := false
+	var injectedText string
+
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+		gateCalled = true
+		return gate.GateResult{Action: "confirm"}
+	})
+
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+		return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: rewritten, Confidence: 0.9}, nil
+	})
+
+	injectFn := InjectFn(func(text string) error {
+		injectCalled = true
+		injectedText = text
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--file", wavPath, "--input=direct"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		classifyFn, gateFn, fakeExecute, injectFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gateCalled {
+		t.Error("expected gateFn NOT to be called for KindDirectPrompt with --input=direct")
+	}
+	if !injectCalled {
+		t.Error("expected injectFn to be called for KindDirectPrompt with --input=direct")
+	}
+	if injectedText == "" {
+		t.Error("expected injected text to be non-empty")
+	}
+}
+
+func TestRun_InputDirect_KindQuery_SkipsGate(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	gateCalled := false
+	injectCalled := false
+
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+		gateCalled = true
+		return gate.GateResult{Action: "confirm"}
+	})
+
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+		return intent.ActionProposal{Kind: intent.KindQuery, Rewritten: rewritten, Confidence: 0.9}, nil
+	})
+
+	injectFn := InjectFn(func(text string) error {
+		injectCalled = true
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--file", wavPath, "--input=direct"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		classifyFn, gateFn, fakeExecute, injectFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gateCalled {
+		t.Error("expected gateFn NOT to be called for KindQuery with --input=direct")
+	}
+	if !injectCalled {
+		t.Error("expected injectFn to be called for KindQuery with --input=direct")
+	}
+}
+
+func TestRun_InputDirect_KindBacklogAction_UsesGate(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	gateCalled := false
+	injectCalled := false
+
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+		gateCalled = true
+		return gate.GateResult{Action: "confirm"}
+	})
+
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+		return intent.ActionProposal{Kind: intent.KindBacklogAction, Rewritten: rewritten, Confidence: 0.9}, nil
+	})
+
+	injectFn := InjectFn(func(text string) error {
+		injectCalled = true
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--file", wavPath, "--input=direct"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		classifyFn, gateFn, fakeExecute, injectFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !gateCalled {
+		t.Error("expected gateFn to be called for KindBacklogAction even with --input=direct")
+	}
+	if injectCalled {
+		t.Error("expected injectFn NOT to be called for KindBacklogAction")
+	}
+}
+
+func TestRun_InputDirect_KindAmbiguous_UsesGate(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	gateCalled := false
+	injectCalled := false
+
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+		gateCalled = true
+		return gate.GateResult{Action: "confirm"}
+	})
+
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+		return intent.ActionProposal{Kind: intent.KindAmbiguous, Rewritten: rewritten, Confidence: 0.3}, nil
+	})
+
+	injectFn := InjectFn(func(text string) error {
+		injectCalled = true
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--file", wavPath, "--input=direct"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		classifyFn, gateFn, fakeExecute, injectFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !gateCalled {
+		t.Error("expected gateFn to be called for KindAmbiguous even with --input=direct")
+	}
+	if injectCalled {
+		t.Error("expected injectFn NOT to be called for KindAmbiguous")
+	}
+}
+
+func TestRun_SessionIntegrated_ReturnsError(t *testing.T) {
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--file", wavPath, "--session=integrated"},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		fakeClassify, fakeGateConfirm, fakeExecute, nil,
+	)
+	if err == nil {
+		t.Fatal("expected error for --session=integrated (not yet implemented)")
 	}
 }

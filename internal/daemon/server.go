@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/yalehu/voci/internal/intent"
 	"github.com/yalehu/voci/internal/pipeline"
@@ -40,16 +41,17 @@ type Server struct {
 	// APIKey is the ASR API key.
 	APIKey string
 	// EventWriter is the writer for event output (e.g. os.Stdout for Monitor-host mode).
-	// One JSON line per event is written here on every successful request.
+	// Written by /api/voice/emit only (not by /api/voice/transcribe).
 	EventWriter io.Writer
 	// EventPath is the optional path to the event log file (debug/fallback only).
 	EventPath string
 }
 
-// Handler returns an http.Handler routing POST /api/voice/transcribe.
+// Handler returns an http.Handler routing the two voice endpoints.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/voice/transcribe", s.handleTranscribe)
+	mux.HandleFunc("/api/voice/emit", s.handleEmit)
 	return mux
 }
 
@@ -58,13 +60,14 @@ func (s *Server) Start(addr string) error {
 	return http.ListenAndServe(addr, s.Handler())
 }
 
+// handleTranscribe runs the full ASR pipeline and returns ActionProposal JSON.
+// It does NOT write to EventWriter or EventPath — that is handleEmit's job.
 func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Read audio bytes from body
 	audioBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
@@ -75,7 +78,6 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write audio bytes to a temp file for the transcribe function
 	tmpFile, err := os.CreateTemp("", "voci-audio-*.wav")
 	if err != nil {
 		http.Error(w, "failed to create temp file", http.StatusInternalServerError)
@@ -90,7 +92,6 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpFile.Close()
 
-	// Rebuild hint per call
 	hint := ""
 	if s.BuildHintFn != nil {
 		hint = s.BuildHintFn()
@@ -98,28 +99,24 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Stage 1: ASR transcription
 	raw, err := s.TranscribeFn(ctx, s.APIKey, tmpFile.Name(), "")
 	if err != nil {
 		http.Error(w, "ASR error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Stage 2: Hinted correction
 	hinted, err := s.HintedFn(ctx, raw, hint, s.ChatFn)
 	if err != nil {
 		http.Error(w, "hinted error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Stage 3: Rewrite
 	rewritten, err := s.RewriteFn(ctx, hinted, hint, s.ChatFn)
 	if err != nil {
 		http.Error(w, "rewrite error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Stage 4: Classify
 	proposal, err := s.ClassifyFn(ctx, rewritten, hint, s.ChatFn)
 	if err != nil {
 		http.Error(w, "classify error: "+err.Error(), http.StatusInternalServerError)
@@ -127,26 +124,51 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	proposal.RawTranscript = raw
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(proposal)
+}
+
+type emitRequest struct {
+	Text string `json:"text"`
+}
+
+// handleEmit accepts browser-confirmed text and emits it to EventWriter (→ Monitor) and
+// optionally to EventPath (debug sidecar). It does not invoke any pipeline stage.
+func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req emitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		http.Error(w, "text is required", http.StatusBadRequest)
+		return
+	}
+
+	if s.EventWriter == nil {
+		http.Error(w, "EventWriter not configured", http.StatusServiceUnavailable)
+		return
+	}
+
 	ev := Event{
-		Rewritten:     proposal.Rewritten,
-		Kind:          string(proposal.Kind),
-		RawTranscript: proposal.RawTranscript,
-		Confidence:    proposal.Confidence,
+		Rewritten: text,
+		Kind:      "direct_prompt",
 	}
 
-	// Primary output channel: EventWriter (stdout in Monitor-host mode).
-	if s.EventWriter != nil {
-		if data, merr := json.Marshal(ev); merr == nil {
-			s.EventWriter.Write(append(data, '\n'))
-		}
+	if data, merr := json.Marshal(ev); merr == nil {
+		s.EventWriter.Write(append(data, '\n'))
 	}
 
-	// Optional file sidecar for debugging/legacy.
 	if s.EventPath != "" {
 		_ = AppendEvent(s.EventPath, ev)
 	}
 
-	// Return proposal as JSON
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(proposal)
+	w.WriteHeader(http.StatusNoContent)
 }

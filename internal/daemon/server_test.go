@@ -123,6 +123,7 @@ func TestHandler_RebuildsHintPerCall(t *testing.T) {
 	}
 }
 
+// TestHandler_AppendsEventPerCall: /transcribe must NOT write to EventPath (emit is /emit's job).
 func TestHandler_AppendsEventPerCall(t *testing.T) {
 	dir := t.TempDir()
 	eventPath := filepath.Join(dir, "events.log")
@@ -139,26 +140,12 @@ func TestHandler_AppendsEventPerCall(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	data, err := os.ReadFile(eventPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-
-	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
-	if len(lines) != 1 {
-		t.Fatalf("expected 1 event line, got %d", len(lines))
-	}
-
-	var ev Event
-	if err := json.Unmarshal(lines[0], &ev); err != nil {
-		t.Fatalf("Unmarshal event: %v", err)
-	}
-
-	if ev.Rewritten != "rewritten text" {
-		t.Errorf("event Rewritten: got %q, want %q", ev.Rewritten, "rewritten text")
+	if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
+		t.Error("expected EventPath file NOT to be created by /transcribe")
 	}
 }
 
+// TestHandler_WritesEventLineToStdout: /transcribe must NOT write to EventWriter.
 func TestHandler_WritesEventLineToStdout(t *testing.T) {
 	var buf bytes.Buffer
 	srv, _, _ := makeServer(t, "")
@@ -173,23 +160,12 @@ func TestHandler_WritesEventLineToStdout(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	lines := bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n"))
-	if len(lines) != 1 || len(lines[0]) == 0 {
-		t.Fatalf("expected 1 non-empty event line, got %d lines: %q", len(lines), buf.String())
-	}
-
-	var ev Event
-	if err := json.Unmarshal(lines[0], &ev); err != nil {
-		t.Fatalf("Unmarshal event: %v", err)
-	}
-	if ev.Rewritten != "rewritten text" {
-		t.Errorf("Rewritten: got %q, want %q", ev.Rewritten, "rewritten text")
-	}
-	if ev.Kind != string(intent.KindDirectPrompt) {
-		t.Errorf("Kind: got %q, want %q", ev.Kind, intent.KindDirectPrompt)
+	if buf.Len() != 0 {
+		t.Errorf("expected /transcribe NOT to write to EventWriter, but got: %q", buf.String())
 	}
 }
 
+// TestHandler_StdoutOneLinePerCall: /transcribe must not write any lines regardless of call count.
 func TestHandler_StdoutOneLinePerCall(t *testing.T) {
 	var buf bytes.Buffer
 	srv, _, _ := makeServer(t, "")
@@ -205,9 +181,8 @@ func TestHandler_StdoutOneLinePerCall(t *testing.T) {
 		}
 	}
 
-	lines := bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n"))
-	if len(lines) != 2 {
-		t.Errorf("expected 2 event lines, got %d", len(lines))
+	if buf.Len() != 0 {
+		t.Errorf("expected /transcribe NOT to write to EventWriter after 2 calls, got %d bytes", buf.Len())
 	}
 }
 
@@ -234,6 +209,7 @@ func TestHandler_StillReturnsProposalJSONToHTTP(t *testing.T) {
 	}
 }
 
+// TestHandler_EventPathOptional: EventWriter must remain empty when /transcribe is called.
 func TestHandler_EventPathOptional(t *testing.T) {
 	var buf bytes.Buffer
 	srv, _, _ := makeServer(t, "") // EventPath = ""
@@ -247,8 +223,8 @@ func TestHandler_EventPathOptional(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if buf.Len() == 0 {
-		t.Error("expected event written to EventWriter, but buffer is empty")
+	if buf.Len() != 0 {
+		t.Errorf("expected /transcribe NOT to write to EventWriter, got: %q", buf.String())
 	}
 	// No file should have been created
 	if _, err := os.Stat("events.log"); !os.IsNotExist(err) {
@@ -297,15 +273,9 @@ func TestHandler_HintBuilderResultReachesHintedStage(t *testing.T) {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 
-	f, err := os.Open(eventPath)
-	if err != nil {
-		t.Fatalf("open event log: %v", err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	if !scanner.Scan() {
-		t.Fatal("no event lines written")
+	// EventPath file must NOT be written by /transcribe (emit is /emit's job)
+	if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
+		t.Error("expected EventPath file NOT to be created by /transcribe")
 	}
 
 	if len(capturedHintsInHinted) == 0 {
@@ -313,5 +283,201 @@ func TestHandler_HintBuilderResultReachesHintedStage(t *testing.T) {
 	}
 	if capturedHintsInHinted[0] != "injected-hint-value" {
 		t.Errorf("HintedFn got hint %q, want %q", capturedHintsInHinted[0], "injected-hint-value")
+	}
+}
+
+// ---- Phase A: explicit no-emit tests ----
+
+func TestTranscribe_DoesNotWriteToEventWriter(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("audio data")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if buf.Len() != 0 {
+		t.Errorf("handleTranscribe must not write to EventWriter; got %d bytes: %q", buf.Len(), buf.String())
+	}
+}
+
+func TestTranscribe_DoesNotAppendToEventPath(t *testing.T) {
+	dir := t.TempDir()
+	eventPath := filepath.Join(dir, "events.log")
+	srv, _, _ := makeServer(t, eventPath)
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("audio data")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
+		t.Error("handleTranscribe must not write to EventPath; file was created")
+	}
+}
+
+// ---- Phase B: /api/voice/emit tests ----
+
+func TestEmit_WritesOneEventLineToEventWriter(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	body := strings.NewReader(`{"text":"hello world"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", body)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	lines := bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n"))
+	if len(lines) != 1 || len(lines[0]) == 0 {
+		t.Fatalf("expected 1 non-empty event line, got %d lines: %q", len(lines), buf.String())
+	}
+
+	var ev Event
+	if err := json.Unmarshal(lines[0], &ev); err != nil {
+		t.Fatalf("Unmarshal event: %v", err)
+	}
+	if ev.Rewritten != "hello world" {
+		t.Errorf("ev.Rewritten: got %q, want %q", ev.Rewritten, "hello world")
+	}
+}
+
+func TestEmit_RejectsNonPost(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/voice/emit", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", w.Code)
+	}
+}
+
+func TestEmit_RejectsEmptyText(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	for _, body := range []string{`{"text":""}`, `{"text":"   "}`, `{}`} {
+		buf.Reset()
+		req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code < 400 || w.Code >= 500 {
+			t.Errorf("body %q: expected 4xx, got %d", body, w.Code)
+		}
+	}
+}
+
+func TestEmit_Returns503WhenEventWriterNil(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = nil
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", strings.NewReader(`{"text":"hello"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", w.Code)
+	}
+}
+
+func TestEmit_WritesExactlyOneLinePerCall(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", strings.NewReader(`{"text":"cmd"}`))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("call %d: expected 204, got %d", i+1, w.Code)
+		}
+	}
+
+	lines := bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n"))
+	if len(lines) != 2 {
+		t.Errorf("expected 2 event lines, got %d", len(lines))
+	}
+}
+
+func TestEmit_AlsoAppendsToEventPath(t *testing.T) {
+	dir := t.TempDir()
+	eventPath := filepath.Join(dir, "events.log")
+
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, eventPath)
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", strings.NewReader(`{"text":"write both"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// EventWriter
+	if buf.Len() == 0 {
+		t.Error("expected EventWriter to have content")
+	}
+
+	// EventPath file
+	f, err := os.Open(eventPath)
+	if err != nil {
+		t.Fatalf("expected EventPath file to be created: %v", err)
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	if !scanner.Scan() {
+		t.Fatal("expected at least 1 event line in EventPath file")
+	}
+	var ev Event
+	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+		t.Fatalf("Unmarshal EventPath line: %v", err)
+	}
+	if ev.Rewritten != "write both" {
+		t.Errorf("EventPath ev.Rewritten: got %q, want %q", ev.Rewritten, "write both")
+	}
+}
+
+func TestEmit_EventPathOptional(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "") // EventPath = ""
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", strings.NewReader(`{"text":"no file"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if buf.Len() == 0 {
+		t.Error("expected EventWriter to have content")
+	}
+	if _, err := os.Stat("events.log"); !os.IsNotExist(err) {
+		t.Error("expected no events.log file when EventPath is empty")
 	}
 }

@@ -341,6 +341,27 @@ func TestBuildCachedReadsCache(t *testing.T) {
 	}
 }
 
+// ---- TASK-10: filler-word spoken variants ----
+
+func TestBuildKnownEntitiesHasFunctionExpansions(t *testing.T) {
+	result := buildKnownEntities(nil)
+
+	// Filler-word variants
+	if !strings.Contains(result, "build a context: BuildContext") {
+		t.Errorf("expected 'build a context: BuildContext' in output, got: %q", result)
+	}
+	if !strings.Contains(result, "run a hinted: RunHinted") {
+		t.Errorf("expected 'run a hinted: RunHinted' in output, got: %q", result)
+	}
+	// Original entries preserved
+	if !strings.Contains(result, "build context: BuildContext") {
+		t.Errorf("expected 'build context: BuildContext' in output, got: %q", result)
+	}
+	if !strings.Contains(result, "run hinted: RunHinted") {
+		t.Errorf("expected 'run hinted: RunHinted' in output, got: %q", result)
+	}
+}
+
 // ---- Backward compat ----
 
 func TestBuildContextBackwardCompat(t *testing.T) {

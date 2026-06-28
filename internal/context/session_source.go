@@ -198,29 +198,60 @@ func parseSessionSnippet(lines []string) string {
 	return sb.String()
 }
 
+// jsonlPathForSession returns the JSONL path for a given home directory, project root, and session ID.
+func jsonlPathForSession(home, root, id string) string {
+	hash := strings.ReplaceAll(root, "/", "-")
+	return filepath.Join(home, ".claude", "projects", hash, id+".jsonl")
+}
+
+// readSessionFile reads a session ID from a file, trimming whitespace.
+// Returns "" if the file does not exist or cannot be read.
+func readSessionFile(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
 // SessionSource reads Claude Code session JSONL and contributes recent activity context.
 type SessionSource struct {
 	Lines       int            // number of tail lines to read; default 100
-	jsonlPathFn func() string  // override for testing; nil = use CLAUDE_CODE_SESSION_ID env var
+	jsonlPathFn func() string  // override for testing; nil = use sessionIDFn or env var
+	sessionIDFn func() string  // override for testing; nil = read ~/.voci/session file
 }
 
 // Name returns "session".
 func (s *SessionSource) Name() string { return "session" }
 
 // Fetch returns a session context snippet and provenance "session".
+// Priority: jsonlPathFn > ~/.voci/session (or sessionIDFn) > CLAUDE_CODE_SESSION_ID env > graceful degrade.
 // Returns ("", "session") if the session file is unavailable.
 func (s *SessionSource) Fetch(root string) (string, string) {
 	var path string
 	if s.jsonlPathFn != nil {
 		path = s.jsonlPathFn()
 	} else {
-		id := os.Getenv("CLAUDE_CODE_SESSION_ID")
-		if id == "" {
-			return "", "session"
-		}
 		home, _ := os.UserHomeDir()
-		projectHash := strings.ReplaceAll(root, "/", "-")
-		path = filepath.Join(home, ".claude", "projects", projectHash, id+".jsonl")
+
+		// Determine session ID: use sessionIDFn hook if set, else read ~/.voci/session file
+		var id string
+		if s.sessionIDFn != nil {
+			id = s.sessionIDFn()
+		} else {
+			id = readSessionFile(filepath.Join(home, ".voci", "session"))
+		}
+
+		if id != "" {
+			path = jsonlPathForSession(home, root, id)
+		} else {
+			// Fall back to CLAUDE_CODE_SESSION_ID env var
+			envID := os.Getenv("CLAUDE_CODE_SESSION_ID")
+			if envID == "" {
+				return "", "session"
+			}
+			path = jsonlPathForSession(home, root, envID)
+		}
 	}
 
 	n := s.Lines

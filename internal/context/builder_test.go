@@ -1,10 +1,12 @@
 package context
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func makeTasksDir(t *testing.T, root string) {
@@ -179,5 +181,174 @@ func TestBuildContextKnownEntitiesBeforeActiveTasks(t *testing.T) {
 	}
 	if idxEntities >= idxTasks {
 		t.Errorf("expected '## Known Entities' before '## Active Tasks', got positions %d and %d", idxEntities, idxTasks)
+	}
+}
+
+// ---- Increment 1: Source interface + plugin registration ----
+
+func TestSourceInterfaceBacklog(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
+	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
+	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &BacklogSource{}
+	snippet, prov := src.Fetch(tmpDir)
+	if snippet == "" {
+		t.Error("expected non-empty snippet from BacklogSource")
+	}
+	if prov != "backlog" {
+		t.Errorf("expected provenance 'backlog', got %q", prov)
+	}
+}
+
+func TestSourceInterfaceClaudeMd(t *testing.T) {
+	tmpDir := t.TempDir()
+	sentinel := "CLAUDE_SENTINEL_ABC"
+	claudePath := filepath.Join(tmpDir, "CLAUDE.md")
+	if err := os.WriteFile(claudePath, []byte(sentinel), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &ClaudeMdSource{}
+	snippet, prov := src.Fetch(tmpDir)
+	if !strings.Contains(snippet, sentinel) {
+		t.Errorf("expected snippet to contain sentinel %q, got %q", sentinel, snippet)
+	}
+	if prov != "claude.md" {
+		t.Errorf("expected provenance 'claude.md', got %q", prov)
+	}
+}
+
+func TestSourceInterfaceGitLog(t *testing.T) {
+	src := &GitLogSource{Runner: func() string { return "abc1234 add auth\n" }}
+	snippet, prov := src.Fetch("/irrelevant")
+	if !strings.Contains(snippet, "add auth") {
+		t.Errorf("expected snippet to contain 'add auth', got %q", snippet)
+	}
+	if prov != "git" {
+		t.Errorf("expected provenance 'git', got %q", prov)
+	}
+}
+
+// ---- Increment 2: Provenance + Result ----
+
+func TestBuilderResultHasAstHint(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	b := &Builder{}
+	b.Register(&KnownEntitiesSource{})
+	b.Register(&BacklogSource{})
+	b.Register(&ClaudeMdSource{})
+	b.Register(&GitLogSource{Runner: func() string { return "abc add auth\n" }})
+
+	result := b.Build(tmpDir)
+	if result.AsrHint == "" {
+		t.Error("expected non-empty AsrHint")
+	}
+}
+
+func TestBuilderResultHasFullContext(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	b := &Builder{}
+	b.Register(&KnownEntitiesSource{})
+	b.Register(&BacklogSource{})
+	b.Register(&ClaudeMdSource{})
+	b.Register(&GitLogSource{Runner: func() string { return "" }})
+
+	result := b.Build(tmpDir)
+	if !strings.Contains(result.FullContext, "## Project Context") {
+		t.Errorf("expected FullContext to contain '## Project Context', got: %q", result.FullContext)
+	}
+}
+
+func TestBuilderResultHasProvenance(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	b := &Builder{}
+	b.Register(&KnownEntitiesSource{})
+	b.Register(&BacklogSource{})
+	b.Register(&ClaudeMdSource{})
+	b.Register(&GitLogSource{Runner: func() string { return "abc\n" }})
+
+	result := b.Build(tmpDir)
+	for _, key := range []string{"backlog", "claude.md", "git"} {
+		if _, ok := result.Provenance[key]; !ok {
+			t.Errorf("expected Provenance to have key %q", key)
+		}
+	}
+}
+
+// ---- Increment 4: context_cache.json ----
+
+func TestBuildCachedWritesFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	b := &Builder{}
+	b.Register(&KnownEntitiesSource{})
+	b.Register(&BacklogSource{})
+	b.Register(&ClaudeMdSource{})
+	b.Register(&GitLogSource{Runner: func() string { return "" }})
+
+	_ = b.BuildCached(tmpDir)
+
+	cachePath := filepath.Join(tmpDir, ".voci", "context_cache.json")
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Errorf("expected cache file at %q, got error: %v", cachePath, err)
+	}
+}
+
+func TestBuildCachedReadsCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	// Write a fake cache with a sentinel AsrHint
+	vociDir := filepath.Join(tmpDir, ".voci")
+	if err := os.MkdirAll(vociDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cached := Result{
+		AsrHint:    "cached_sentinel_hint",
+		FullContext: "## Project Context\ncached",
+		Provenance: map[string]string{"backlog": "x", "claude.md": "y", "git": "z"},
+	}
+	cf := struct {
+		Result    Result    `json:"result"`
+		CreatedAt time.Time `json:"created_at"`
+	}{Result: cached, CreatedAt: time.Now()}
+	data, _ := json.Marshal(cf)
+	if err := os.WriteFile(filepath.Join(vociDir, "context_cache.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Builder{}
+	b.Register(&BacklogSource{})
+	b.Register(&ClaudeMdSource{})
+	b.Register(&GitLogSource{Runner: func() string { return "" }})
+
+	result := b.BuildCached(tmpDir)
+	if result.AsrHint != "cached_sentinel_hint" {
+		t.Errorf("expected cached AsrHint 'cached_sentinel_hint', got %q", result.AsrHint)
+	}
+}
+
+// ---- Backward compat ----
+
+func TestBuildContextBackwardCompat(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	result := BuildContext(tmpDir, nil)
+	if result == "" {
+		t.Error("expected non-empty result from BuildContext with nil gitRunner")
 	}
 }

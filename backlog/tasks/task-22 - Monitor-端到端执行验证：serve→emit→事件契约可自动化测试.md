@@ -1,14 +1,14 @@
 ---
 id: TASK-22
 title: Monitor 端到端执行验证：serve→emit→事件契约可自动化测试
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-28 14:26'
-updated_date: '2026-06-28 14:32'
+updated_date: '2026-06-28 14:46'
 labels:
   - 'kind:basic'
 dependencies: []
-ordinal: 19000
+ordinal: 1000
 ---
 
 ## Description
@@ -294,6 +294,20 @@ premise-ledger:
 checklist: Goal coverage PASS; TDD structure PASS; TDD order PASS (Phase A first DoD go test -tags e2e); Acceptance first item go test ./... PASS; DoD executability PASS; absence checks use '! grep -q' PASS; Phase ordering PASS; Scope discipline PASS; file paths PASS
 GCL-self-report: E=8 C=1 H=1
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Three-phase implementation:
+
+Phase A: internal/daemon/e2e_test.go (//go:build e2e) — 3 tests asserting the two-step serve contract: /transcribe returns ActionProposal with no EventWriter write; /emit writes exactly one JSON Event line with correct Rewritten/Kind fields.
+
+Phase B: scripts/extract-instruction.py — standalone testable script extracting the 'rewritten' field (fixes latent bug: SKILL.md used obj.get('Rewritten') but Event JSON uses lowercase 'rewritten'). scripts/extract-instruction_test.sh verifies 3 cases (JSON hit, non-JSON raw fallback, missing key fallback). SKILL.md extractInstruction section updated to call the script.
+
+Phase C: docs/manual-verification/monitor-e2e.md — numbered checklist for the irreducibly-manual harness step (Monitor push → Claude Code executes instruction in session).
+
+Commit: 5fe4012
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

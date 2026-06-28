@@ -3,6 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <title>voci</title>
+<style>
+body { font-family: sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; }
+#status { font-size: 1.1em; color: #444; margin-bottom: 1em; }
+#preview { border: 1px solid #ccc; padding: 1em; border-radius: 4px; margin-bottom: 1em; }
+#preview p { margin: 0.4em 0; }
+textarea { width: 100%; box-sizing: border-box; }
+button { margin-right: 0.5em; padding: 0.4em 1em; }
+details { margin-top: 1em; border: 1px solid #ddd; border-radius: 4px; }
+summary { padding: 0.5em 1em; background: #f5f5f5; cursor: pointer; font-weight: bold; }
+details[open] summary { border-bottom: 1px solid #ddd; }
+.ctx-block { background: #fafafa; font-family: monospace; font-size: 0.85em; white-space: pre-wrap; padding: 0.8em 1em; max-height: 200px; overflow-y: auto; }
+</style>
 </head>
 <body>
 <h1>voci</h1>
@@ -10,12 +22,30 @@
 <div id="preview" style="display:none">
   <p><strong>RAW:</strong> <span id="raw"></span></p>
   <p><strong>REWRITTEN</strong> (<code>Rewritten</code>):</p>
-  <textarea id="rewritten" rows="3" cols="60"></textarea>
+  <textarea id="rewritten" rows="3"></textarea>
   <p><strong>Kind</strong> (<code>Kind</code>): <span id="kind"></span>
-     <strong>Confidence:</strong> <span id="confidence"></span></p>
+     &nbsp; <strong>Confidence:</strong> <span id="confidence"></span></p>
   <button id="confirm">Confirm</button>
   <button id="cancel">Cancel</button>
 </div>
+
+<details id="ctx-known" open>
+  <summary>Known Entities</summary>
+  <div class="ctx-block" id="ctx-known-body">(loading…)</div>
+</details>
+<details id="ctx-tasks" open>
+  <summary>Active Tasks</summary>
+  <div class="ctx-block" id="ctx-tasks-body">(loading…)</div>
+</details>
+<details id="ctx-dialogue">
+  <summary>Recent Dialogue</summary>
+  <div class="ctx-block" id="ctx-dialogue-body"></div>
+</details>
+<details id="ctx-session">
+  <summary>Session Activity</summary>
+  <div class="ctx-block" id="ctx-session-body"></div>
+</details>
+
 <script src="recorder.js"></script>
 </body>
 </html>

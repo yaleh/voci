@@ -41,6 +41,9 @@ type Server struct {
 	ClassifyFn ClassifyFn
 	// BuildHintFn builds the context hint; called once per request.
 	BuildHintFn func() string
+	// HintFn returns the full assembled hint for the context preview panel (/api/context).
+	// If nil, /api/context returns an empty hint.
+	HintFn func(ctx context.Context) (string, error)
 	// ChatFn is the LLM chat function.
 	ChatFn pipeline.ChatFn
 	// APIKey is the ASR API key.
@@ -57,6 +60,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/voice/transcribe", s.handleTranscribe)
 	mux.HandleFunc("/api/voice/emit", s.handleEmit)
+	mux.HandleFunc("/api/context", s.handleContext)
 	sub, _ := fs.Sub(embeddedFS, "web")
 	mux.Handle("/", http.FileServerFS(sub))
 	return mux
@@ -133,6 +137,21 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(proposal)
+}
+
+// handleContext returns the current assembled ASR hint as JSON for the Web UI context panel.
+func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
+	hint := ""
+	if s.HintFn != nil {
+		var err error
+		hint, err = s.HintFn(r.Context())
+		if err != nil {
+			http.Error(w, "context build failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"hint": hint})
 }
 
 type emitRequest struct {

@@ -1,12 +1,13 @@
-// voci PTT recorder — placeholder (Phase C will fill this in)
-// Contracts referenced: /api/voice/transcribe, /api/voice/emit, MediaRecorder
-// Fields read from transcribe response: Rewritten, RawTranscript, Kind, Confidence (capitalized — ActionProposal has no json tags)
-// Fields sent to emit: { text: ..., "kind": ... }
+// voci PTT recorder
+// Contracts: /api/voice/transcribe, /api/voice/emit, /api/context, MediaRecorder
+// Fields from transcribe: Rewritten, RawTranscript, Kind, Confidence (ActionProposal — no json tags → capitalized)
+// Fields to emit: { text: ..., "kind": ... }
 (function() {
   var chunks = [];
   var recorder = null;
   var previewedKind = 'direct_prompt';
   var mediaStream = null;
+  var ctxTimer = null;
 
   var statusEl = document.getElementById('status');
   var previewEl = document.getElementById('preview');
@@ -17,6 +18,11 @@
   var confirmBtn = document.getElementById('confirm');
   var cancelBtn = document.getElementById('cancel');
 
+  var ctxKnownEl = document.getElementById('ctx-known-body');
+  var ctxTasksEl = document.getElementById('ctx-tasks-body');
+  var ctxDialogueEl = document.getElementById('ctx-dialogue-body');
+  var ctxSessionEl = document.getElementById('ctx-session-body');
+
   function isInputFocused() {
     var el = document.activeElement;
     return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
@@ -24,6 +30,7 @@
 
   function startRecording() {
     if (recorder && recorder.state === 'recording') return;
+    refreshContext();
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
       mediaStream = stream;
       chunks = [];
@@ -75,6 +82,30 @@
     previewedKind = 'direct_prompt';
   }
 
+  // /api/context: fetch hint and render the context panel sections
+  function refreshContext() {
+    fetch('/api/context')
+      .then(function(r) { return r.json(); })
+      .then(function(resp) { renderContext(resp.hint || ''); })
+      .catch(function() {});
+  }
+
+  function extractSection(hint, heading) {
+    var idx = hint.indexOf(heading);
+    if (idx < 0) return '';
+    var body = hint.slice(idx + heading.length);
+    var next = body.search(/\n## /);
+    if (next >= 0) body = body.slice(0, next);
+    return body.trim();
+  }
+
+  function renderContext(hint) {
+    ctxKnownEl.textContent = extractSection(hint, '## Known Entities') || '(none)';
+    ctxTasksEl.textContent = extractSection(hint, '## Active Tasks') || '(none)';
+    ctxDialogueEl.textContent = extractSection(hint, '## Recent Dialogue') || '';
+    ctxSessionEl.textContent = extractSection(hint, '## Claude Code Session') || '';
+  }
+
   confirmBtn.addEventListener('click', function() {
     var text = rewrittenEl.value.trim();
     if (!text) return;
@@ -107,4 +138,8 @@
       stopRecording();
     }
   });
+
+  // Poll context every 5 seconds; also refresh immediately on load
+  refreshContext();
+  ctxTimer = setInterval(refreshContext, 5000);
 })();

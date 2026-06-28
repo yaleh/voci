@@ -265,3 +265,29 @@ func TestRewritePassesThroughAmbiguous(t *testing.T) {
 		t.Errorf("expected [ambiguous] in result, got: %q", result)
 	}
 }
+
+// TestKnownEntities_ExcludesRecentDialogue guards that prose from ## Recent Dialogue
+// never leaks into the slice consumed by Rewrite (via knownEntities).
+func TestKnownEntities_ExcludesRecentDialogue(t *testing.T) {
+	hint := `## Known Entities
+spoken: Web 服务器
+canonical: Web server
+
+## Claude Code Session
+- editing: internal/daemon/server.go
+
+## Recent Dialogue
+外部服务器应为Web`
+
+	result := knownEntities(hint)
+
+	if !strings.Contains(result, "Web server") {
+		t.Errorf("expected Known Entities content in result, got: %q", result)
+	}
+	if strings.Contains(result, "外部服务器应为Web") {
+		t.Errorf("Recent Dialogue prose must not appear in knownEntities output, got: %q", result)
+	}
+	if strings.Contains(result, "## Recent Dialogue") {
+		t.Errorf("## Recent Dialogue heading must not appear in knownEntities output, got: %q", result)
+	}
+}

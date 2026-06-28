@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -531,5 +532,67 @@ func TestEmit_DefaultsKindWhenAbsent(t *testing.T) {
 	}
 	if ev.Kind != "direct_prompt" {
 		t.Errorf("ev.Kind: got %q, want %q", ev.Kind, "direct_prompt")
+	}
+}
+
+// Phase D: /api/context endpoint
+
+func TestHandleContext_ReturnsHint(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	srv.HintFn = func(ctx context.Context) (string, error) {
+		return "## Known Entities\nspoken: Foo\n", nil
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/context", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp["hint"], "Known Entities") {
+		t.Errorf("hint missing Known Entities: %q", resp["hint"])
+	}
+}
+
+func TestHandleContext_HintFnError(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	srv.HintFn = func(ctx context.Context) (string, error) {
+		return "", fmt.Errorf("context build failed")
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/context", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleContext_NilHintFnReturnsEmpty(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	// HintFn is nil (not set)
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/context", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if _, ok := resp["hint"]; !ok {
+		t.Error("response must have 'hint' key even when HintFn is nil")
 	}
 }

@@ -366,6 +366,93 @@ func TestSessionSource_EnvLocatesJSONL(t *testing.T) {
 	}
 }
 
+// ---- TASK-23 Phase A: ran denoise ----
+
+func TestParseSessionSnippet_RanFirstLineOnly(t *testing.T) {
+	heredoc := "cat <<'EOF'\nbody line\nmore body\nEOF"
+	lines := []string{
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"` + "cat <<'EOF'\\nbody line\\nmore body\\nEOF" + `"}}]}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if !strings.Contains(snippet, "cat <<'EOF'") {
+		t.Errorf("expected first line of command in snippet, got: %q", snippet)
+	}
+	if strings.Contains(snippet, "body line") {
+		t.Errorf("expected body lines to be stripped from snippet, got: %q", snippet)
+	}
+	if strings.Contains(snippet, "more body") {
+		t.Errorf("expected body lines to be stripped from snippet, got: %q", snippet)
+	}
+	_ = heredoc
+}
+
+// ---- TASK-23 Phase B: prose extraction ----
+
+func TestParseSessionSnippet_ExtractsRecentProse(t *testing.T) {
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"Web 服务器 在 8080 端口"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"先看 internal/daemon"}]}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if !strings.Contains(snippet, "## Recent Dialogue") {
+		t.Errorf("expected ## Recent Dialogue heading, got: %q", snippet)
+	}
+	for _, want := range []string{"Web", "8080", "端口", "internal/daemon"} {
+		if !strings.Contains(snippet, want) {
+			t.Errorf("expected %q in snippet, got: %q", want, snippet)
+		}
+	}
+}
+
+func TestParseSessionSnippet_ProseCapped(t *testing.T) {
+	// Feed 8 user turns, each >300 chars; only last 6 kept, each capped at 200 chars,
+	// so total Recent Dialogue block must be under 1200 chars, and oldest turns absent.
+	longText := strings.Repeat("X", 350)
+	var lines []string
+	for i := 0; i < 8; i++ {
+		marker := ""
+		if i == 0 {
+			marker = "OLDEST_UNIQUE_MARKER"
+		}
+		text := marker + longText
+		// Escape for JSON
+		line := `{"type":"user","message":{"role":"user","content":"` + text + `"}}`
+		lines = append(lines, line)
+	}
+	// Add a recent unique marker in the last turn
+	recentMarker := "RECENT_UNIQUE_MARKER_XYZ"
+	lines = append(lines, `{"type":"user","message":{"role":"user","content":"`+recentMarker+`"}}`)
+
+	snippet := parseSessionSnippet(lines)
+
+	// The ## Recent Dialogue block must exist
+	if !strings.Contains(snippet, "## Recent Dialogue") {
+		t.Errorf("expected ## Recent Dialogue heading, got: %q", snippet)
+	}
+
+	// Extract the block
+	const heading = "## Recent Dialogue"
+	idx := strings.Index(snippet, heading)
+	if idx < 0 {
+		t.Fatalf("## Recent Dialogue not found in snippet: %q", snippet)
+	}
+	block := snippet[idx:]
+	if next := strings.Index(block[len(heading):], "\n## "); next >= 0 {
+		block = block[:len(heading)+next]
+	}
+	if len(block) > 1200 {
+		t.Errorf("## Recent Dialogue block too large: %d chars (cap 1200)", len(block))
+	}
+	// Oldest turn absent
+	if strings.Contains(block, "OLDEST_UNIQUE_MARKER") {
+		t.Errorf("oldest turn should be excluded from capped prose block")
+	}
+	// Recent turn present
+	if !strings.Contains(block, recentMarker) {
+		t.Errorf("most recent turn should be in prose block, got: %q", block)
+	}
+}
+
 func TestSessionSource_EmptyEverywhere_Degrades(t *testing.T) {
 	os.Unsetenv("CLAUDE_CODE_SESSION_ID")
 	src := &SessionSource{

@@ -92,12 +92,16 @@ type sessionEntry struct {
 	} `json:"message"`
 }
 
-// toolUse represents a tool_use content block.
-type toolUse struct {
+// contentBlock represents any content block (tool_use, text, tool_result, etc.).
+type contentBlock struct {
 	Type  string          `json:"type"`
 	Name  string          `json:"name"`
 	Input json.RawMessage `json:"input"`
+	Text  string          `json:"text"`
 }
+
+// toolUse is an alias kept for clarity; same layout as contentBlock.
+type toolUse = contentBlock
 
 // toolInput represents common tool input fields.
 type toolInput struct {
@@ -105,15 +109,22 @@ type toolInput struct {
 	Command  string `json:"command"`
 }
 
+const (
+	maxProseTurns       = 6
+	maxProseCharsPerTurn = 200
+	maxProseCharsTotal  = 1200
+)
+
 // taskIDPattern matches TASK-N references.
 var taskIDPattern = regexp.MustCompile(`TASK-\d+`)
 
 // parseSessionSnippet extracts relevant information from JSONL session lines.
-// It returns a formatted snippet with editing, commands, and task mentions.
+// It returns a formatted snippet with editing, commands, task mentions, and recent prose.
 func parseSessionSnippet(lines []string) string {
 	fileSet := make(map[string]bool)
 	cmdSet := make(map[string]bool)
 	taskSet := make(map[string]bool)
+	var proseTurns []string // collected in chronological order
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -126,76 +137,124 @@ func parseSessionSnippet(lines []string) string {
 			continue
 		}
 
-		// Try to parse content as an array of tool_use blocks (assistant messages)
-		if entry.Message.Content != nil {
-			var contentArr []toolUse
-			if err := json.Unmarshal(entry.Message.Content, &contentArr); err == nil {
-				for _, block := range contentArr {
-					if block.Type == "tool_use" {
-						var inp toolInput
-						_ = json.Unmarshal(block.Input, &inp)
-						switch block.Name {
-						case "Read", "Edit", "Write":
-							if inp.FilePath != "" {
-								fileSet[inp.FilePath] = true
-							}
-						case "Bash":
-							if inp.Command != "" {
-								cmdSet[inp.Command] = true
+		if entry.Message.Content == nil {
+			continue
+		}
+
+		// Try as array of content blocks (assistant messages)
+		var contentArr []contentBlock
+		if err := json.Unmarshal(entry.Message.Content, &contentArr); err == nil {
+			for _, block := range contentArr {
+				switch block.Type {
+				case "tool_use":
+					var inp toolInput
+					_ = json.Unmarshal(block.Input, &inp)
+					switch block.Name {
+					case "Read", "Edit", "Write":
+						if inp.FilePath != "" {
+							fileSet[inp.FilePath] = true
+						}
+					case "Bash":
+						if inp.Command != "" {
+							first := strings.SplitN(strings.TrimSpace(inp.Command), "\n", 2)[0]
+							if first != "" {
+								cmdSet[first] = true
 							}
 						}
 					}
-				}
-			} else {
-				// Try as a plain string (user messages)
-				var contentStr string
-				if err := json.Unmarshal(entry.Message.Content, &contentStr); err == nil {
-					for _, id := range taskIDPattern.FindAllString(contentStr, -1) {
-						taskSet[id] = true
+				case "text":
+					if t := normalizeProse(block.Text); t != "" {
+						proseTurns = append(proseTurns, t)
 					}
+				}
+			}
+		} else {
+			// Try as a plain string (user messages)
+			var contentStr string
+			if err := json.Unmarshal(entry.Message.Content, &contentStr); err == nil {
+				for _, id := range taskIDPattern.FindAllString(contentStr, -1) {
+					taskSet[id] = true
+				}
+				if t := normalizeProse(contentStr); t != "" {
+					proseTurns = append(proseTurns, t)
 				}
 			}
 		}
 	}
 
-	if len(fileSet) == 0 && len(cmdSet) == 0 && len(taskSet) == 0 {
+	// Apply caps: keep last maxProseTurns, trim each to maxProseCharsPerTurn
+	if len(proseTurns) > maxProseTurns {
+		proseTurns = proseTurns[len(proseTurns)-maxProseTurns:]
+	}
+	for i, t := range proseTurns {
+		if len(t) > maxProseCharsPerTurn {
+			proseTurns[i] = t[:maxProseCharsPerTurn]
+		}
+	}
+
+	hasSession := len(fileSet) > 0 || len(cmdSet) > 0 || len(taskSet) > 0
+	hasProse := len(proseTurns) > 0
+	if !hasSession && !hasProse {
 		return ""
 	}
 
 	var sb strings.Builder
-	sb.WriteString("## Claude Code Session\n")
 
-	if len(fileSet) > 0 {
-		files := make([]string, 0, len(fileSet))
-		for f := range fileSet {
-			files = append(files, f)
+	if hasSession {
+		sb.WriteString("## Claude Code Session\n")
+
+		if len(fileSet) > 0 {
+			files := make([]string, 0, len(fileSet))
+			for f := range fileSet {
+				files = append(files, f)
+			}
+			sb.WriteString("- editing: ")
+			sb.WriteString(strings.Join(files, ", "))
+			sb.WriteString("\n")
 		}
-		sb.WriteString("- editing: ")
-		sb.WriteString(strings.Join(files, ", "))
-		sb.WriteString("\n")
+
+		if len(cmdSet) > 0 {
+			cmds := make([]string, 0, len(cmdSet))
+			for c := range cmdSet {
+				cmds = append(cmds, c)
+			}
+			sb.WriteString("- ran: ")
+			sb.WriteString(strings.Join(cmds, "; "))
+			sb.WriteString("\n")
+		}
+
+		if len(taskSet) > 0 {
+			tasks := make([]string, 0, len(taskSet))
+			for id := range taskSet {
+				tasks = append(tasks, id)
+			}
+			sb.WriteString("- mentioned: ")
+			sb.WriteString(strings.Join(tasks, ", "))
+			sb.WriteString("\n")
+		}
 	}
 
-	if len(cmdSet) > 0 {
-		cmds := make([]string, 0, len(cmdSet))
-		for c := range cmdSet {
-			cmds = append(cmds, c)
+	if hasProse {
+		sb.WriteString("## Recent Dialogue\n")
+		total := 0
+		for _, t := range proseTurns {
+			if total+len(t) > maxProseCharsTotal {
+				break
+			}
+			sb.WriteString(t)
+			sb.WriteString("\n")
+			total += len(t)
 		}
-		sb.WriteString("- ran: ")
-		sb.WriteString(strings.Join(cmds, "; "))
-		sb.WriteString("\n")
-	}
-
-	if len(taskSet) > 0 {
-		tasks := make([]string, 0, len(taskSet))
-		for id := range taskSet {
-			tasks = append(tasks, id)
-		}
-		sb.WriteString("- mentioned: ")
-		sb.WriteString(strings.Join(tasks, ", "))
-		sb.WriteString("\n")
 	}
 
 	return sb.String()
+}
+
+// normalizeProse collapses internal whitespace/newlines to single spaces and trims.
+// Returns "" for empty or whitespace-only input.
+func normalizeProse(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	return strings.TrimSpace(s)
 }
 
 // jsonlPathForSession returns the JSONL path for a given home directory, project root, and session ID.

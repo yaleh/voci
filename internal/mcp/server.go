@@ -108,12 +108,18 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, s.toolsList(req))
 	case "tools/call":
 		writeResponse(w, s.toolsCall(req))
-	case "initialize", "notifications/initialized":
+	case "initialize":
 		writeResponse(w, Response{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Result:  map[string]interface{}{},
+			Result: map[string]interface{}{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
+				"serverInfo":      map[string]interface{}{"name": "voci", "version": "0.1.0"},
+			},
 		})
+	case "notifications/initialized":
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		writeResponse(w, errorResponse(req.ID, -32601, fmt.Sprintf("method not found: %s", req.Method)))
 	}

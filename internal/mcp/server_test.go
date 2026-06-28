@@ -112,7 +112,7 @@ func TestServer_InitializeMethod(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp := postJSON(t, ts, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
+	resp := postJSON(t, ts, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}`)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -122,6 +122,33 @@ func TestServer_InitializeMethod(t *testing.T) {
 	r := decodeResponse(t, resp)
 	if r.Error != nil {
 		t.Fatalf("expected no error for initialize, got: %v", r.Error)
+	}
+
+	result, ok := r.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("result is not a map: %T", r.Result)
+	}
+	if result["protocolVersion"] == nil {
+		t.Error("initialize response missing protocolVersion")
+	}
+	if result["capabilities"] == nil {
+		t.Error("initialize response missing capabilities")
+	}
+	if result["serverInfo"] == nil {
+		t.Error("initialize response missing serverInfo")
+	}
+}
+
+func TestServer_NotificationsInitialized(t *testing.T) {
+	srv := newTestServer()
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp := postJSON(t, ts, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
 	}
 }
 

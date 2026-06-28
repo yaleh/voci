@@ -330,6 +330,42 @@ func TestSessionSource_FallsBackToEnvWhenFileEmpty(t *testing.T) {
 	}
 }
 
+// TestSessionSource_EnvLocatesJSONL proves the voci serve Monitor-subprocess scenario:
+// voci serve inherits CLAUDE_CODE_SESSION_ID from the session environment, no ~/.voci/session
+// file is written, yet SessionSource can locate the JSONL and return a non-empty snippet.
+func TestSessionSource_EnvLocatesJSONL(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "serve-env-sess")
+
+	// No ~/.voci/session file created (serves subprocess inherits env, no file handoff).
+	const root = "/home/yale/work/voci"
+	hash := strings.ReplaceAll(root, "/", "-")
+	dir := filepath.Join(tmpHome, ".claude", "projects", hash)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "serve-env-sess.jsonl")
+	content := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"internal/daemon/server.go"}}]}}` + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default SessionSource: no sessionIDFn, no jsonlPathFn.
+	// readSessionFile(tmpHome/.voci/session) → "" (file absent) → falls back to env.
+	src := &SessionSource{}
+	snippet, prov := src.Fetch(root)
+	if snippet == "" {
+		t.Error("expected non-empty snippet: voci serve Monitor subprocess inherits CLAUDE_CODE_SESSION_ID and must locate JSONL without file handoff")
+	}
+	if prov != "session" {
+		t.Errorf("expected provenance 'session', got: %q", prov)
+	}
+	if !strings.Contains(snippet, "internal/daemon/server.go") {
+		t.Errorf("expected file path in snippet, got: %q", snippet)
+	}
+}
+
 func TestSessionSource_EmptyEverywhere_Degrades(t *testing.T) {
 	os.Unsetenv("CLAUDE_CODE_SESSION_ID")
 	src := &SessionSource{

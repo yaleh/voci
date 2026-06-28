@@ -25,7 +25,17 @@ import (
 func main() {
 	target := os.Getenv("TMUX_PANE")
 	ccAdapter := adapter.NewClaudeCodeAdapter(target, "")
-	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil, nil, nil, ccAdapter.Deliver); err != nil {
+	buildHintFn := BuildHintFn(func(root string) string {
+		src, err := ccAdapter.DiscoverContext()
+		if err != nil || src == nil {
+			return vocicontext.BuildContext(root, nil)
+		}
+		return vocicontext.BuildContextWithSource(root, src, nil)
+	})
+	if err := run(os.Args[1:], os.Stdout, os.Stdin,
+		nil, nil, nil, nil, nil, nil, nil, nil,
+		buildHintFn, ccAdapter.Deliver,
+	); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -39,6 +49,7 @@ type GateFn func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.
 type ExecuteFn func(proposal intent.ActionProposal) (string, error)
 type InjectFn func(text string) error
 type StartMCPServerFn func(addr string) error
+type BuildHintFn func(root string) string
 
 // defaultCmdRunner runs an external command and returns its combined output.
 func defaultCmdRunner(name string, args ...string) (string, error) {
@@ -59,6 +70,7 @@ func run(
 	executeFn ExecuteFn,
 	injectFn InjectFn,
 	startMCPServerFn StartMCPServerFn,
+	buildHintFn BuildHintFn,
 	deliverFn func(intent.ActionProposal) error,
 ) error {
 	fs := flag.NewFlagSet("voci", flag.ContinueOnError)
@@ -76,6 +88,14 @@ func run(
 		return err
 	}
 
+	// buildHint uses the injected BuildHintFn if provided, otherwise falls back to BuildContext.
+	buildHint := func(root string) string {
+		if buildHintFn != nil {
+			return buildHintFn(root)
+		}
+		return vocicontext.BuildContext(root, nil)
+	}
+
 	// --session=integrated: start MCP server, no --file required
 	if *sessionFlag == "integrated" {
 		addr := fmt.Sprintf("127.0.0.1:%d", *mcpPortFlag)
@@ -88,7 +108,7 @@ func run(
 			if err != nil {
 				cwd = "."
 			}
-			hint := vocicontext.BuildContext(cwd, nil)
+			hint := buildHint(cwd)
 			chatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
 				return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
 			}
@@ -142,7 +162,7 @@ func run(
 	if err != nil {
 		cwd = "."
 	}
-	hint := vocicontext.BuildContext(cwd, nil)
+	hint := buildHint(cwd)
 
 	// Build chat function
 	chatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {

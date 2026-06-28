@@ -127,6 +127,15 @@ func (b *Builder) assembleAsrHint(snippets map[string]string) string {
 		sb.WriteString(s)
 	}
 
+	// Append any extra snippets not covered above (e.g. session, custom sources)
+	handled := map[string]bool{"entities": true, "backlog": true, "claude.md": true, "git": true}
+	for name, s := range snippets {
+		if !handled[name] && s != "" {
+			sb.WriteString("\n")
+			sb.WriteString(s)
+		}
+	}
+
 	return sb.String()
 }
 
@@ -343,7 +352,7 @@ func DefaultGitRunner(root string) string {
 	return string(out)
 }
 
-// defaultBuilder creates a Builder with the standard sources.
+// defaultBuilder creates a Builder with the standard sources (excluding session source).
 // If gitRunner is provided, it wraps it for GitLogSource.
 func defaultBuilder(root string, gitRunner GitRunner) *Builder {
 	var runner func() string
@@ -358,14 +367,23 @@ func defaultBuilder(root string, gitRunner GitRunner) *Builder {
 	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: runner})
-	b.Register(&SessionSource{})
 	return b
+}
+
+// BuildContextWithSource builds context with an optional extra Source (e.g. a session source).
+// root is the project root directory. src may be nil (no session source registered).
+// gitRunner may be nil (uses DefaultGitRunner).
+func BuildContextWithSource(root string, src Source, gitRunner GitRunner) string {
+	b := defaultBuilder(root, gitRunner)
+	if src != nil {
+		b.Register(src)
+	}
+	return b.Build(root).AsrHint
 }
 
 // BuildContext reads project context and returns an asr_hint string.
 // root is the project root directory. gitRunner may be nil (uses DefaultGitRunner).
-// This is a backward-compatible wrapper around Builder.Build.
+// This is a backward-compatible wrapper around BuildContextWithSource.
 func BuildContext(root string, gitRunner GitRunner) string {
-	b := defaultBuilder(root, gitRunner)
-	return b.Build(root).AsrHint
+	return BuildContextWithSource(root, &SessionSource{}, gitRunner)
 }

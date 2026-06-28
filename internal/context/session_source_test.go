@@ -174,8 +174,8 @@ func TestDefaultBuilder_IncludesSessionSource(t *testing.T) {
 			break
 		}
 	}
-	if !found {
-		t.Error("expected defaultBuilder to include a source with Name()=='session'")
+	if found {
+		t.Error("expected defaultBuilder NOT to include a source with Name()=='session'")
 	}
 }
 

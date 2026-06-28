@@ -362,6 +362,42 @@ func TestBuildKnownEntitiesHasFunctionExpansions(t *testing.T) {
 	}
 }
 
+// ---- BuildContextWithSource tests ----
+
+// noopGit returns empty string — used to avoid real git calls in tests
+func noopGit(root string) string { return "" }
+
+// stubSource implements Source and returns a fixed snippet
+type stubSource struct{ snippet string }
+
+func (s *stubSource) Name() string                       { return "stub" }
+func (s *stubSource) Fetch(root string) (string, string) { return s.snippet, "stub" }
+
+func TestBuildContextWithSource_NilSrc_NoSessionSnippet(t *testing.T) {
+	dir := t.TempDir()
+	result := BuildContextWithSource(dir, nil, noopGit)
+	if strings.Contains(result, "## Recent Session") {
+		t.Error("expected no session section when src is nil")
+	}
+}
+
+func TestBuildContextWithSource_CustomSrc_SnippetIncluded(t *testing.T) {
+	dir := t.TempDir()
+	src := &stubSource{snippet: "CUSTOM_SENTINEL"}
+	result := BuildContextWithSource(dir, src, noopGit)
+	if !strings.Contains(result, "CUSTOM_SENTINEL") {
+		t.Errorf("expected CUSTOM_SENTINEL in hint, got: %s", result)
+	}
+}
+
+func TestBuildContextWithSource_KnownEntitiesPresent(t *testing.T) {
+	dir := t.TempDir()
+	result := BuildContextWithSource(dir, nil, noopGit)
+	if !strings.Contains(result, "## Known Entities") {
+		t.Errorf("expected ## Known Entities in hint, got: %s", result)
+	}
+}
+
 // ---- Backward compat ----
 
 func TestBuildContextBackwardCompat(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/yalehu/voci/internal/adapter"
 	"github.com/yalehu/voci/internal/asr"
 	"github.com/yalehu/voci/internal/config"
 	vocicontext "github.com/yalehu/voci/internal/context"
@@ -22,7 +23,9 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
+	target := os.Getenv("TMUX_PANE")
+	ccAdapter := adapter.NewClaudeCodeAdapter(target, "")
+	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil, nil, nil, ccAdapter.Deliver); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -56,6 +59,7 @@ func run(
 	executeFn ExecuteFn,
 	injectFn InjectFn,
 	startMCPServerFn StartMCPServerFn,
+	deliverFn func(intent.ActionProposal) error,
 ) error {
 	fs := flag.NewFlagSet("voci", flag.ContinueOnError)
 	fs.SetOutput(stdout)
@@ -215,7 +219,9 @@ func run(
 
 	// Stage 6b: Session/input routing
 	if *inputFlag == "direct" && (proposal.Kind == intent.KindDirectPrompt || proposal.Kind == intent.KindQuery) {
-		if injectFn != nil {
+		if deliverFn != nil {
+			return deliverFn(proposal)
+		} else if injectFn != nil {
 			return injectFn(proposal.Rewritten)
 		}
 		return nil

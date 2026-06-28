@@ -133,6 +133,7 @@ func run(
 	eventsPathFlag := fs.String("events-path", "", "path to event log file (default: ~/.voci/events.log)")
 	serveFlag := fs.Bool("serve", false, "run as Monitor-host server; writes event lines to stdout")
 	servePortFlag := fs.Int("serve-port", 9474, "port for serve HTTP server (used with --serve)")
+	serveHostFlag := fs.String("serve-host", "127.0.0.1", "bind host for serve HTTP server (use 0.0.0.0 for LAN access)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -148,7 +149,7 @@ func run(
 
 	// --serve: Monitor-host mode; writes one JSON event line per utterance to stdout.
 	if *serveFlag {
-		addr := fmt.Sprintf("127.0.0.1:%d", *servePortFlag)
+		addr := fmt.Sprintf("%s:%d", *serveHostFlag, *servePortFlag)
 		perCallHint := func() string {
 			cwd, err := os.Getwd()
 			if err != nil {

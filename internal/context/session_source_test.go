@@ -194,3 +194,152 @@ func TestBuildContext_SessionSourceIntegrated(t *testing.T) {
 		t.Error("expected Provenance to have 'session' key")
 	}
 }
+
+// ---- Phase D: jsonlPathForSession, readSessionFile, sessionIDFn ----
+
+func TestJsonlPathForSession(t *testing.T) {
+	cases := []struct {
+		home, root, id string
+		want           string
+	}{
+		{
+			home: "/home/u",
+			root: "/a/b",
+			id:   "ID",
+			want: "/home/u/.claude/projects/-a-b/ID.jsonl",
+		},
+		{
+			home: "/home/u",
+			root: "/a/b/",
+			id:   "ID",
+			want: "/home/u/.claude/projects/-a-b-/ID.jsonl",
+		},
+	}
+	for _, tc := range cases {
+		got := jsonlPathForSession(tc.home, tc.root, tc.id)
+		if got != tc.want {
+			t.Errorf("jsonlPathForSession(%q, %q, %q) = %q, want %q",
+				tc.home, tc.root, tc.id, got, tc.want)
+		}
+	}
+}
+
+func TestReadSessionFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// file with "sess-123\n"
+	p1 := filepath.Join(tmpDir, "session1")
+	if err := os.WriteFile(p1, []byte("sess-123\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// empty file
+	p2 := filepath.Join(tmpDir, "session2")
+	if err := os.WriteFile(p2, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// file with "  x  \n"
+	p3 := filepath.Join(tmpDir, "session3")
+	if err := os.WriteFile(p3, []byte("  x  \n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// non-existent path
+	p4 := filepath.Join(tmpDir, "nonexistent")
+
+	cases := []struct {
+		path string
+		want string
+	}{
+		{p1, "sess-123"},
+		{p2, ""},
+		{p4, ""},
+		{p3, "x"},
+	}
+	for _, tc := range cases {
+		got := readSessionFile(tc.path)
+		if got != tc.want {
+			t.Errorf("readSessionFile(%q) = %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestSessionSource_FileTakesPrecedenceOverEnv(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "env-id")
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Create fixture for "file-id" session
+	const root = "/home/yale/work/voci"
+	hash := strings.ReplaceAll(root, "/", "-")
+	dir := filepath.Join(tmpHome, ".claude", "projects", hash)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "file-id.jsonl")
+	content := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"internal/context/builder.go"}}]}}` + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &SessionSource{
+		sessionIDFn: func() string { return "file-id" },
+	}
+	snippet, prov := src.Fetch(root)
+	if snippet == "" {
+		t.Error("expected non-empty snippet from file-id session")
+	}
+	if prov != "session" {
+		t.Errorf("expected provenance 'session', got: %q", prov)
+	}
+	if !strings.Contains(snippet, "internal/context/builder.go") {
+		t.Errorf("expected file path in snippet from file-id, got: %q", snippet)
+	}
+}
+
+func TestSessionSource_FallsBackToEnvWhenFileEmpty(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "env-id")
+
+	// Create fixture for "env-id" session
+	const root = "/home/yale/work/voci"
+	hash := strings.ReplaceAll(root, "/", "-")
+	dir := filepath.Join(tmpHome, ".claude", "projects", hash)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "env-id.jsonl")
+	content := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}` + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// sessionIDFn returns "" (empty file simulation)
+	src := &SessionSource{
+		sessionIDFn: func() string { return "" },
+	}
+	snippet, prov := src.Fetch(root)
+	if snippet == "" {
+		t.Error("expected non-empty snippet from env-id fallback")
+	}
+	if prov != "session" {
+		t.Errorf("expected provenance 'session', got: %q", prov)
+	}
+}
+
+func TestSessionSource_EmptyEverywhere_Degrades(t *testing.T) {
+	os.Unsetenv("CLAUDE_CODE_SESSION_ID")
+	src := &SessionSource{
+		sessionIDFn: func() string { return "" },
+	}
+	snippet, prov := src.Fetch("/some/root")
+	if snippet != "" {
+		t.Errorf("expected empty snippet when everything empty, got: %q", snippet)
+	}
+	if prov != "session" {
+		t.Errorf("expected provenance 'session', got: %q", prov)
+	}
+}

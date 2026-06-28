@@ -1,0 +1,6 @@
+{"type":"assistant","timestamp":"2026-06-28T00:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"internal/context/builder.go"}}]}}
+{"type":"user","timestamp":"2026-06-28T00:01:00Z","message":{"role":"user","content":[{"type":"tool_result","content":"file contents"}]}}
+{"type":"assistant","timestamp":"2026-06-28T00:02:00Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}
+{"type":"user","timestamp":"2026-06-28T00:03:00Z","message":{"role":"user","content":"working on TASK-3 now"}}
+this is invalid json
+{"type":"assistant","timestamp":"2026-06-28T00:04:00Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"internal/gate/gate.go"}}]}}

@@ -15,13 +15,14 @@ import (
 	"github.com/yalehu/voci/internal/gate"
 	"github.com/yalehu/voci/internal/inject"
 	"github.com/yalehu/voci/internal/intent"
+	"github.com/yalehu/voci/internal/mcp"
 	"github.com/yalehu/voci/internal/ollama"
 	"github.com/yalehu/voci/internal/output"
 	"github.com/yalehu/voci/internal/pipeline"
 )
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil, nil); err != nil {
+	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -34,6 +35,7 @@ type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pi
 type GateFn func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult
 type ExecuteFn func(proposal intent.ActionProposal) (string, error)
 type InjectFn func(text string) error
+type StartMCPServerFn func(addr string) error
 
 // defaultCmdRunner runs an external command and returns its combined output.
 func defaultCmdRunner(name string, args ...string) (string, error) {
@@ -53,6 +55,7 @@ func run(
 	gateFn GateFn,
 	executeFn ExecuteFn,
 	injectFn InjectFn,
+	startMCPServerFn StartMCPServerFn,
 ) error {
 	fs := flag.NewFlagSet("voci", flag.ContinueOnError)
 	fs.SetOutput(stdout)
@@ -63,9 +66,56 @@ func run(
 	sessionFlag := fs.String("session", "separate", "session mode: separate|integrated")
 	inputFlag := fs.String("input", "preview", "input mode: preview|direct")
 	tmuxTargetFlag := fs.String("tmux-target", "", "tmux pane target (e.g. session:window.pane)")
+	mcpPortFlag := fs.Int("mcp-port", 9473, "port for MCP server (used with --session=integrated)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// --session=integrated: start MCP server, no --file required
+	if *sessionFlag == "integrated" {
+		addr := fmt.Sprintf("127.0.0.1:%d", *mcpPortFlag)
+		if startMCPServerFn == nil {
+			cfg, err := config.LoadConfig()
+			if err != nil {
+				return fmt.Errorf("config: %w", err)
+			}
+			cwd, err := os.Getwd()
+			if err != nil {
+				cwd = "."
+			}
+			hint := vocicontext.BuildContext(cwd, nil)
+			chatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
+				return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
+			}
+			if transcribeFn == nil {
+				transcribeFn = asr.Transcribe
+			}
+			if hintedFn == nil {
+				hintedFn = pipeline.RunHinted
+			}
+			if rewriteFnOpt == nil {
+				rewriteFnOpt = pipeline.Rewrite
+			}
+			if classifyFn == nil {
+				classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+					return intent.Classify(ctx, rewritten, fullContext, chat)
+				}
+			}
+			startMCPServerFn = func(addr string) error {
+				srv := mcp.NewServer(
+					mcp.TranscribeFn(transcribeFn),
+					mcp.HintedFn(hintedFn),
+					mcp.RewriteFn(rewriteFnOpt),
+					mcp.ClassifyFn(classifyFn),
+					cfg.SiliconFlowKey,
+					chatFn,
+					hint,
+				)
+				return srv.Start(addr)
+			}
+		}
+		return startMCPServerFn(addr)
 	}
 
 	if *fileFlag == "" {
@@ -164,9 +214,6 @@ func run(
 	}
 
 	// Stage 6b: Session/input routing
-	if *sessionFlag == "integrated" {
-		return fmt.Errorf("--session=integrated not yet implemented (see TASK-4.3)")
-	}
 	if *inputFlag == "direct" && (proposal.Kind == intent.KindDirectPrompt || proposal.Kind == intent.KindQuery) {
 		if injectFn != nil {
 			return injectFn(proposal.Rewritten)

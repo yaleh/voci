@@ -1,2 +1,4 @@
 /voci
 testdata/
+.voci/
+context_cache.json

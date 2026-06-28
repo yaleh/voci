@@ -1,11 +1,11 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor on ~/.voci/events.log produced by the TASK-16 voice producer. On each wake-up, extracts the Rewritten field from the JSON event and executes it inline as the next in-session instruction. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via self-re-invoke hint in the Monitor description. Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with command=\"voci serve\" (the TASK-16 Monitor-host voice producer). voci serve's stdout emits one JSON event line per utterance; each line wakes the session, the Rewritten field is extracted and executed inline as the next in-session instruction. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via self-re-invoke hint in the Monitor description. Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop
 contracts:
   - grep: "Monitor(persistent=true"
     target: self
-  - grep: "tail -f ~/.voci/events.log"
+  - grep: 'command="voci serve"'
     target: self
   - grep: "description="
     target: self
@@ -60,12 +60,13 @@ listenLoop() = {
   if (stopSentinel()):
     return: Stopped,
 
-  -- Arm persistent Monitor on the TASK-16 voice event log.
-  -- Each line is a JSON object with at minimum a "Rewritten" field.
+  -- Arm persistent Monitor on the TASK-16 voci serve process.
+  -- voci serve writes one JSON event line to stdout per utterance.
+  -- Each stdout line has at minimum a "Rewritten" field (the recognized instruction).
   -- On wake-up: extract Rewritten and execute it inline in the current session.
   -- The description carries a re-invoke hint for cross-/clear recovery.
   event: Monitor(persistent=true,
-           command="tail -f ~/.voci/events.log",
+           command="voci serve",
            description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"),
 
   if (stopSentinel()):
@@ -74,7 +75,7 @@ listenLoop() = {
   instruction: extractInstruction(event),
   -- Execute the instruction inline (not via sub-agent):
   execute(instruction),
-  return: listenLoop(),   -- re-arm for the next event (tail -f is persistent)
+  return: listenLoop(),   -- re-arm for the next event (voci serve is persistent)
 }
 
 stopStaleMon() = {
@@ -124,20 +125,23 @@ After `stopStaleMon` and the sentinel check, arm the persistent Monitor:
 
 ```
 Monitor(persistent=true,
-  command="tail -f ~/.voci/events.log",
+  command="voci serve",
   description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"
 )
 ```
 
-`tail -f` blocks until a new line is appended by the TASK-16 producer. Monitor wakes up
-the session for each new line.
+`voci serve` is the Monitor-host voice producer (TASK-16). It starts an HTTP listener for
+browser PTT uploads, runs the full ASR→hinted→rewrite→classify pipeline per utterance, and
+writes one JSON event line to stdout per recognized utterance. Monitor wakes up the session
+for each stdout line. As a Monitor sub-process, `voci serve` inherits the session's
+`CLAUDE_CODE_SESSION_ID` environment variable automatically.
 
 ### extractInstruction (per-line handler)
 
-On each Monitor wake-up, the event payload is the raw line emitted by `tail -f`.
+On each Monitor wake-up, the event payload is the raw line emitted by `voci serve` on stdout.
 
 ```bash
-LINE="$1"   # raw line from tail -f
+LINE="$1"   # raw line from voci serve stdout
 
 # Attempt JSON parse; fall back to raw string if not valid JSON
 INSTRUCTION=$(echo "$LINE" | python3 -c "

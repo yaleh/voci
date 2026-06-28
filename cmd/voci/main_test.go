@@ -72,7 +72,7 @@ func TestCLIFileFlagPrintsRAW(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestCLIFileFlagPrintsHINTED(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCLIFileFlagPrintsREWRITTEN(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath, "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestCLINoFileExitsNonzero(t *testing.T) {
 	setTestEnv(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute, nil, nil, nil, nil, nil)
+	err := run([]string{}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute, nil, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing --file")
 	}
@@ -123,7 +123,7 @@ func TestCLIFileMissingExitsNonzero(t *testing.T) {
 	setTestEnv(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", "/nonexistent.wav"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", "/nonexistent.wav"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, fakeGateConfirm, fakeExecute, nil, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -135,7 +135,7 @@ func TestCLIIterateFlagAccepted(t *testing.T) {
 
 	var stdout bytes.Buffer
 	// Empty stdin means iterate loop exits immediately; --no-gate skips interactive gate
-	err := run([]string{"--file", wavPath, "--iterate", "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath, "--iterate", "--no-gate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestRunFullPipelineWithGate(t *testing.T) {
 		[]string{"--file", wavPath},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		classifyFn, gateFn, executeFn, nil, nil, nil, nil, nil,
+		classifyFn, gateFn, executeFn, nil, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -208,7 +208,7 @@ func TestRunFullPipelineGateDiscard(t *testing.T) {
 		[]string{"--file", wavPath},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		fakeClassify, fakeGateDiscard, executeFn, nil, nil, nil, nil, nil,
+		fakeClassify, fakeGateDiscard, executeFn, nil, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -236,7 +236,7 @@ func TestCLINoGateFlagSkipsGate(t *testing.T) {
 		[]string{"--file", wavPath, "--no-gate"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		fakeClassify, gateFn, fakeExecute, nil, nil, nil, nil, nil,
+		fakeClassify, gateFn, fakeExecute, nil, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -255,7 +255,7 @@ func TestRun_SessionFlag_Defaults(t *testing.T) {
 		[]string{"--file", wavPath, "--no-gate"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil,
+		fakeClassify, nil, fakeExecute, nil, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error with default session/input flags: %v", err)
@@ -290,7 +290,7 @@ func TestRun_InputDirect_KindDirectPrompt_SkipsGate(t *testing.T) {
 		[]string{"--file", wavPath, "--input=direct"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil,
+		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -332,7 +332,7 @@ func TestRun_InputDirect_KindQuery_SkipsGate(t *testing.T) {
 		[]string{"--file", wavPath, "--input=direct"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil,
+		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -371,7 +371,7 @@ func TestRun_InputDirect_KindBacklogAction_UsesGate(t *testing.T) {
 		[]string{"--file", wavPath, "--input=direct"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil,
+		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -410,7 +410,7 @@ func TestRun_InputDirect_KindAmbiguous_UsesGate(t *testing.T) {
 		[]string{"--file", wavPath, "--input=direct"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil,
+		classifyFn, gateFn, fakeExecute, injectFn, nil, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -437,7 +437,7 @@ func TestRun_SessionIntegrated_StartsServer(t *testing.T) {
 		[]string{"--session=integrated", "--mcp-port=0"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		fakeClassify, fakeGateConfirm, fakeExecute, nil, startMCPServerFn, nil, nil, nil,
+		fakeClassify, fakeGateConfirm, fakeExecute, nil, startMCPServerFn, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -462,7 +462,7 @@ func TestRun_SessionIntegrated_NoFileRequired(t *testing.T) {
 		[]string{"--session=integrated"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		fakeClassify, fakeGateConfirm, fakeExecute, nil, startMCPServerFn, nil, nil, nil,
+		fakeClassify, fakeGateConfirm, fakeExecute, nil, startMCPServerFn, nil, nil, nil, nil,
 	)
 	// Should NOT error about --file being required
 	if err != nil {
@@ -496,7 +496,7 @@ func TestRun_SeparateMode_UsesAdapterHint(t *testing.T) {
 		},
 		nil, nil, nil, nil,
 		customHintFn,
-		nil, nil,
+		nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("run error: %v", err)
@@ -521,7 +521,7 @@ func TestRun_BuildHintFnNil_DoesNotPanic(t *testing.T) {
 		},
 		nil, nil, nil, nil,
 		nil, // buildHintFn nil → must not panic, fallback to BuildContext
-		nil, nil,
+		nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("run error: %v", err)
@@ -551,7 +551,7 @@ func TestRun_UsesClaudeCodeAdapter(t *testing.T) {
 		[]string{"--file", wavPath, "--input=direct"},
 		&stdout, strings.NewReader(""),
 		fakeTranscribe, fakeHinted, fakeRewrite,
-		classifyFn, nil, fakeExecute, nil, nil, nil, deliverFn, nil,
+		classifyFn, nil, fakeExecute, nil, nil, nil, deliverFn, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -577,7 +577,7 @@ func TestRun_DaemonFlagStartsDaemon(t *testing.T) {
 		[]string{"--daemon", "--daemon-port=9999"},
 		&stdout, strings.NewReader(""),
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-		startDaemonFn,
+		startDaemonFn, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -602,7 +602,7 @@ func TestRun_DaemonFlagDoesNotRequireFile(t *testing.T) {
 		[]string{"--daemon"},
 		&stdout, strings.NewReader(""),
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-		startDaemonFn,
+		startDaemonFn, nil,
 	)
 	// Must NOT return "--file is required" error
 	if err != nil {
@@ -617,12 +617,85 @@ func TestRun_NoDaemonStillRequiresFile(t *testing.T) {
 	err := run(
 		[]string{},
 		&stdout, strings.NewReader(""),
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
 	if err == nil {
 		t.Fatal("expected error for missing --file without --daemon")
 	}
 	if !strings.Contains(err.Error(), "--file is required") {
 		t.Errorf("expected '--file is required' error, got: %v", err)
+	}
+}
+
+func TestRun_ServeStartsServer(t *testing.T) {
+	setTestEnv(t)
+
+	serveCalled := false
+	var calledAddr string
+	startServeFn := StartServeFn(func(addr string, eventWriter io.Writer, buildHintFn func() string) error {
+		serveCalled = true
+		calledAddr = addr
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--serve-port=9475"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		startServeFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !serveCalled {
+		t.Error("expected startServeFn to be called")
+	}
+	if !strings.Contains(calledAddr, ":9475") {
+		t.Errorf("expected addr to contain :9475, got: %s", calledAddr)
+	}
+}
+
+func TestRun_ServeNoFileRequired(t *testing.T) {
+	setTestEnv(t)
+
+	startServeFn := StartServeFn(func(addr string, eventWriter io.Writer, buildHintFn func() string) error {
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		startServeFn,
+	)
+	if err != nil {
+		t.Fatalf("expected no error for --serve without --file, got: %v", err)
+	}
+}
+
+func TestRun_ServeUsesStdoutSink(t *testing.T) {
+	setTestEnv(t)
+
+	var capturedWriter io.Writer
+	startServeFn := StartServeFn(func(addr string, eventWriter io.Writer, buildHintFn func() string) error {
+		capturedWriter = eventWriter
+		return nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		startServeFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The injected startServeFn receives stdout (the run() stdout param) as the event writer.
+	if capturedWriter != &stdout {
+		t.Errorf("expected eventWriter to be stdout, got %T", capturedWriter)
 	}
 }

@@ -39,7 +39,10 @@ type Server struct {
 	ChatFn pipeline.ChatFn
 	// APIKey is the ASR API key.
 	APIKey string
-	// EventPath is the path to the event log file.
+	// EventWriter is the writer for event output (e.g. os.Stdout for Monitor-host mode).
+	// One JSON line per event is written here on every successful request.
+	EventWriter io.Writer
+	// EventPath is the optional path to the event log file (debug/fallback only).
 	EventPath string
 }
 
@@ -124,14 +127,22 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	proposal.RawTranscript = raw
 
-	// Append event to event log
-	if s.EventPath != "" {
-		ev := Event{
-			Rewritten:     proposal.Rewritten,
-			Kind:          string(proposal.Kind),
-			RawTranscript: proposal.RawTranscript,
-			Confidence:    proposal.Confidence,
+	ev := Event{
+		Rewritten:     proposal.Rewritten,
+		Kind:          string(proposal.Kind),
+		RawTranscript: proposal.RawTranscript,
+		Confidence:    proposal.Confidence,
+	}
+
+	// Primary output channel: EventWriter (stdout in Monitor-host mode).
+	if s.EventWriter != nil {
+		if data, merr := json.Marshal(ev); merr == nil {
+			s.EventWriter.Write(append(data, '\n'))
 		}
+	}
+
+	// Optional file sidecar for debugging/legacy.
+	if s.EventPath != "" {
 		_ = AppendEvent(s.EventPath, ev)
 	}
 

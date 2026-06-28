@@ -36,7 +36,7 @@ func main() {
 	})
 	if err := run(os.Args[1:], os.Stdout, os.Stdin,
 		nil, nil, nil, nil, nil, nil, nil, nil,
-		buildHintFn, ccAdapter.Deliver, nil,
+		buildHintFn, ccAdapter.Deliver, nil, nil,
 	); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -53,6 +53,7 @@ type InjectFn func(text string) error
 type StartMCPServerFn func(addr string) error
 type BuildHintFn func(root string) string
 type StartDaemonFn func(addr, eventsPath string, buildHintFn func() string) error
+type StartServeFn func(addr string, eventWriter io.Writer, buildHintFn func() string) error
 
 // defaultCmdRunner runs an external command and returns its combined output.
 func defaultCmdRunner(name string, args ...string) (string, error) {
@@ -76,6 +77,7 @@ func run(
 	buildHintFn BuildHintFn,
 	deliverFn func(intent.ActionProposal) error,
 	startDaemonFn StartDaemonFn,
+	startServeFn StartServeFn,
 ) error {
 	fs := flag.NewFlagSet("voci", flag.ContinueOnError)
 	fs.SetOutput(stdout)
@@ -90,6 +92,8 @@ func run(
 	daemonFlag := fs.Bool("daemon", false, "run as HTTP daemon accepting audio uploads")
 	daemonPortFlag := fs.Int("daemon-port", 9474, "port for daemon HTTP server (used with --daemon)")
 	eventsPathFlag := fs.String("events-path", "", "path to event log file (default: ~/.voci/events.log)")
+	serveFlag := fs.Bool("serve", false, "run as Monitor-host server; writes event lines to stdout")
+	servePortFlag := fs.Int("serve-port", 9474, "port for serve HTTP server (used with --serve)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -101,6 +105,68 @@ func run(
 			return buildHintFn(root)
 		}
 		return vocicontext.BuildContext(root, nil)
+	}
+
+	// --serve: Monitor-host mode; writes one JSON event line per utterance to stdout.
+	if *serveFlag {
+		addr := fmt.Sprintf("127.0.0.1:%d", *servePortFlag)
+		perCallHint := func() string {
+			cwd, err := os.Getwd()
+			if err != nil {
+				cwd = "."
+			}
+			return buildHint(cwd)
+		}
+
+		if startServeFn != nil {
+			return startServeFn(addr, stdout, perCallHint)
+		}
+
+		// Default: build real Server with stdout as the event sink.
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+		chatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
+			return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
+		}
+		if transcribeFn == nil {
+			transcribeFn = asr.Transcribe
+		}
+		if hintedFn == nil {
+			hintedFn = pipeline.RunHinted
+		}
+		if rewriteFnOpt == nil {
+			rewriteFnOpt = pipeline.Rewrite
+		}
+		if classifyFn == nil {
+			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+				return intent.Classify(ctx, rewritten, fullContext, chat)
+			}
+		}
+		ccAdapter := adapter.NewClaudeCodeAdapter(os.Getenv("TMUX_PANE"), "")
+		srv := &daemon.Server{
+			TranscribeFn: daemon.TranscribeFn(transcribeFn),
+			HintedFn:     daemon.HintedFn(hintedFn),
+			RewriteFn:    daemon.RewriteFn(rewriteFnOpt),
+			ClassifyFn:   daemon.ClassifyFn(classifyFn),
+			BuildHintFn: func() string {
+				cwd, err := os.Getwd()
+				if err != nil {
+					cwd = "."
+				}
+				src, discErr := ccAdapter.DiscoverContext()
+				if discErr != nil || src == nil {
+					return vocicontext.BuildContext(cwd, nil)
+				}
+				return vocicontext.BuildContextWithSource(cwd, src, nil)
+			},
+			ChatFn:      chatFn,
+			APIKey:      cfg.SiliconFlowKey,
+			EventWriter: os.Stdout,
+			EventPath:   *eventsPathFlag,
+		}
+		return srv.Start(addr)
 	}
 
 	// --daemon: start HTTP daemon accepting audio uploads, no --file required

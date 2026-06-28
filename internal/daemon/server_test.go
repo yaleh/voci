@@ -159,6 +159,103 @@ func TestHandler_AppendsEventPerCall(t *testing.T) {
 	}
 }
 
+func TestHandler_WritesEventLineToStdout(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	lines := bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n"))
+	if len(lines) != 1 || len(lines[0]) == 0 {
+		t.Fatalf("expected 1 non-empty event line, got %d lines: %q", len(lines), buf.String())
+	}
+
+	var ev Event
+	if err := json.Unmarshal(lines[0], &ev); err != nil {
+		t.Fatalf("Unmarshal event: %v", err)
+	}
+	if ev.Rewritten != "rewritten text" {
+		t.Errorf("Rewritten: got %q, want %q", ev.Rewritten, "rewritten text")
+	}
+	if ev.Kind != string(intent.KindDirectPrompt) {
+		t.Errorf("Kind: got %q, want %q", ev.Kind, intent.KindDirectPrompt)
+	}
+}
+
+func TestHandler_StdoutOneLinePerCall(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i+1, w.Code)
+		}
+	}
+
+	lines := bytes.Split(bytes.TrimRight(buf.Bytes(), "\n"), []byte("\n"))
+	if len(lines) != 2 {
+		t.Errorf("expected 2 event lines, got %d", len(lines))
+	}
+}
+
+func TestHandler_StillReturnsProposalJSONToHTTP(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var proposal intent.ActionProposal
+	if err := json.NewDecoder(w.Body).Decode(&proposal); err != nil {
+		t.Fatalf("HTTP response not valid ActionProposal JSON: %v", err)
+	}
+	if proposal.Kind != intent.KindDirectPrompt {
+		t.Errorf("HTTP response Kind: got %q, want %q", proposal.Kind, intent.KindDirectPrompt)
+	}
+}
+
+func TestHandler_EventPathOptional(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "") // EventPath = ""
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if buf.Len() == 0 {
+		t.Error("expected event written to EventWriter, but buffer is empty")
+	}
+	// No file should have been created
+	if _, err := os.Stat("events.log"); !os.IsNotExist(err) {
+		t.Error("expected no events.log file to be created when EventPath is empty")
+	}
+}
+
 func TestHandler_HintBuilderResultReachesHintedStage(t *testing.T) {
 	dir := t.TempDir()
 	eventPath := filepath.Join(dir, "events.log")

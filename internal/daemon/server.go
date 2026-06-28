@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
@@ -11,6 +13,9 @@ import (
 	"github.com/yalehu/voci/internal/intent"
 	"github.com/yalehu/voci/internal/pipeline"
 )
+
+//go:embed web/*
+var embeddedFS embed.FS
 
 // TranscribeFn is the function signature for ASR transcription.
 type TranscribeFn func(ctx context.Context, key, audioPath, apiURL string) (string, error)
@@ -47,11 +52,13 @@ type Server struct {
 	EventPath string
 }
 
-// Handler returns an http.Handler routing the two voice endpoints.
+// Handler returns an http.Handler routing the voice endpoints and static UI.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/voice/transcribe", s.handleTranscribe)
 	mux.HandleFunc("/api/voice/emit", s.handleEmit)
+	sub, _ := fs.Sub(embeddedFS, "web")
+	mux.Handle("/", http.FileServerFS(sub))
 	return mux
 }
 
@@ -130,6 +137,7 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 
 type emitRequest struct {
 	Text string `json:"text"`
+	Kind string `json:"kind"`
 }
 
 // handleEmit accepts browser-confirmed text and emits it to EventWriter (→ Monitor) and
@@ -157,9 +165,13 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	kind := strings.TrimSpace(req.Kind)
+	if kind == "" {
+		kind = "direct_prompt"
+	}
 	ev := Event{
 		Rewritten: text,
-		Kind:      "direct_prompt",
+		Kind:      kind,
 	}
 
 	if data, merr := json.Marshal(ev); merr == nil {

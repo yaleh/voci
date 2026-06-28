@@ -481,3 +481,55 @@ func TestEmit_EventPathOptional(t *testing.T) {
 		t.Error("expected no events.log file when EventPath is empty")
 	}
 }
+
+func TestEmit_PreservesKind(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit",
+		strings.NewReader(`{"text":"做个任务","kind":"backlog_action"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	scanner := bufio.NewScanner(&buf)
+	scanner.Scan()
+	var ev Event
+	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if ev.Kind != "backlog_action" {
+		t.Errorf("ev.Kind: got %q, want %q", ev.Kind, "backlog_action")
+	}
+}
+
+func TestEmit_DefaultsKindWhenAbsent(t *testing.T) {
+	var buf bytes.Buffer
+	srv, _, _ := makeServer(t, "")
+	srv.EventWriter = &buf
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit",
+		strings.NewReader(`{"text":"hi"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	scanner := bufio.NewScanner(&buf)
+	scanner.Scan()
+	var ev Event
+	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+		t.Fatalf("unmarshal event: %v", err)
+	}
+	if ev.Kind != "direct_prompt" {
+		t.Errorf("ev.Kind: got %q, want %q", ev.Kind, "direct_prompt")
+	}
+}

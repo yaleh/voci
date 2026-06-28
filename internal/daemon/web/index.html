@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>voci</title>
+</head>
+<body>
+<h1>voci</h1>
+<p id="status">Hold Space to record</p>
+<div id="preview" style="display:none">
+  <p><strong>RAW:</strong> <span id="raw"></span></p>
+  <p><strong>REWRITTEN</strong> (<code>Rewritten</code>):</p>
+  <textarea id="rewritten" rows="3" cols="60"></textarea>
+  <p><strong>Kind</strong> (<code>Kind</code>): <span id="kind"></span>
+     <strong>Confidence:</strong> <span id="confidence"></span></p>
+  <button id="confirm">Confirm</button>
+  <button id="cancel">Cancel</button>
+</div>
+<script src="recorder.js"></script>
+</body>
+</html>

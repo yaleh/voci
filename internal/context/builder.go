@@ -358,6 +358,7 @@ func defaultBuilder(root string, gitRunner GitRunner) *Builder {
 	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: runner})
+	b.Register(&SessionSource{})
 	return b
 }
 

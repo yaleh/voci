@@ -1,10 +1,10 @@
 ---
 id: TASK-1
 title: 原型：语音→上下文感知 ASR→改写 的核心管道验证
-status: 'Basic: In Progress'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-27 13:56'
-updated_date: '2026-06-27 15:29'
+updated_date: '2026-06-28 00:52'
 labels:
   - 'kind:basic'
 dependencies: []
@@ -234,19 +234,92 @@ ASR 变更（2026-06-27）：Stage 2 改为 faster-whisper（本机 CPU）做原
 SiliconFlow 迁移（2026-06-27）：基于 TASK-7 验证结果，全面改用 SiliconFlow 服务：(1) 样本生成改用 SiliconFlow TTS（CosyVoice2-0.5B），输出 .wav 替代 .txt；(2) Stage 2 RAW 改用 SiliconFlow ASR（TeleSpeechASR）直接转写音频（真实 baseline，无 LLM 处理）；(3) CLI 入口改为 `--file audio.wav`（替代 `--text`）；(4) 新增 `internal/config/config.go` 统一管理 API key 和 ollama 端点；(5) Phase B 从"ollama A/B"重构为"ASR + 管道"，新增 `internal/asr/siliconflow.go`。主管道 HINTED/REWRITTEN 仍由 ollama gemma4:e4b 处理。
 
 claimed: 2026-06-27T15:29:34Z
+
+Phase A ✓ 2026-06-27T00:00:00Z: config loader, context builder, gensamples TTS script
+
+Phase B ✓ 2026-06-27T00:00:00Z: SiliconFlow ASR client, ollama streaming client, RunHinted/Rewrite pipeline
+
+Phase C ✓ 2026-06-27T00:00:00Z: CLI --file flag, PrintComparison output
+
+Phase D ✓ 2026-06-27T00:00:00Z: IterateLoop feedback
+
+DoD #1: PASS — go test ./internal/context/... ./internal/config/...
+
+DoD #2: PASS — go build ./cmd/voci
+
+DoD #3: PASS — go run ./scripts/gensamples && ls testdata/sample-01.wav
+
+DoD #4: PASS — go test ./internal/asr/... ./internal/ollama/... ./internal/pipeline/...
+
+DoD #5: PASS — go vet ./...
+
+DoD #6: PASS — go test ./...
+
+DoD #7: PASS — go build -o voci ./cmd/voci && echo build ok
+
+DoD #8: PASS — ./voci --file testdata/sample-01.wav 2>&1 | grep -q REWRITTEN
+
+DoD #9: PASS — ./voci --file testdata/sample-04.wav 2>&1 | grep -q ambiguous
+
+DoD #10: PASS — go test ./internal/pipeline/...
+
+DoD #11: PASS — ./voci --file testdata/sample-01.wav --iterate < /dev/null 2>&1 | grep -q RAW
+
+## Execution Summary
+Result: Done
+Commit: 3fa45eb
+
+Completed: 2026-06-27T15:43:41Z
+## Execution Summary
+Result: Done
+Commit: b406752b3cb8ef80742c3bcb772093cab4607bda
+All 11 DoD checks passed (independent worker verification).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+## 实验结果（2026-06-28）
+
+### 完成部分
+
+**管道全链路跑通**：15 条样本（sample-01～15）通过 SiliconFlow TTS 生成 WAV、TeleSpeechASR 转写 RAW、gemma4:e4b 注入 asr_hint 生成 HINTED、再改写为 REWRITTEN，完整闭环。
+
+**核心假设验证成立**：asr_hint 注入显著提升专有名词识别率。
+
+HINTED 成功率：**7/10**（主要实体正确还原）
+
+| 样本 | 场景 | 结果 |
+|------|------|------|
+| 06 | 多任务 ID（five/eight） | ✓ TASK-5, TASK-8 全部还原 |
+| 07 | 项目名 + flag | ✓ voci, --file 还原；动词误识超范围 |
+| 09 | 包路径（inter nul） | ✓ internal/pipeline 还原 |
+| 10 | internal/asr | ✓ 还原 |
+| 11 | 函数名 RunHinted（严重误识） | ✓ 还原 |
+| 13 | 三个任务 ID | ✓ TASK-6, TASK-2, TASK-8 全部还原 |
+| 15 | 复合（函数名+包路径+任务 ID） | ✓ 三个实体全部还原 |
+
+### 未完成部分（系统性缺陷，已拆出后续任务）
+
+**TASK-8**：同类实体贪心匹配冲突
+- sample-08：`--iterate` 被替换成 `--file`（hint 中 --file 先出现，贪心选错）
+- sample-14：`TASK-8` 被替换成 `TASK-1`（音近 `Taskaid`，模型选了最小编辑距离的 ID）
+
+**TASK-9**：拆分词函数名匹配失败
+- sample-12：`build a context`（ASR 插入 `a`）不匹配 `BuildContext`，hint 未能纠正，且 `pipeline` 被过度扩展为 `internal/pipeline`
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 go test ./internal/context/... ./internal/config/...
-- [ ] #2 go build ./cmd/voci
-- [ ] #3 go run ./scripts/gensamples && ls testdata/sample-01.wav
-- [ ] #4 go test ./internal/asr/... ./internal/ollama/... ./internal/pipeline/...
-- [ ] #5 go vet ./...
-- [ ] #6 go test ./...
-- [ ] #7 go build -o voci ./cmd/voci && echo "build ok"
-- [ ] #8 ./voci --file testdata/sample-01.wav 2>&1 | grep -q REWRITTEN
-- [ ] #9 ./voci --file testdata/sample-04.wav 2>&1 | grep -q ambiguous
-- [ ] #10 go test ./internal/pipeline/...
-- [ ] #11 ./voci --file testdata/sample-01.wav --iterate < /dev/null 2>&1 | grep -q RAW
+- [x] #1 go test ./internal/context/... ./internal/config/...
+- [x] #2 go build ./cmd/voci
+- [x] #3 go run ./scripts/gensamples && ls testdata/sample-01.wav
+- [x] #4 go test ./internal/asr/... ./internal/ollama/... ./internal/pipeline/...
+- [x] #5 go vet ./...
+- [x] #6 go test ./...
+- [x] #7 go build -o voci ./cmd/voci && echo "build ok"
+- [x] #8 ./voci --file testdata/sample-01.wav 2>&1 | grep -q REWRITTEN
+- [x] #9 ./voci --file testdata/sample-04.wav 2>&1 | grep -q ambiguous
+- [x] #10 go test ./internal/pipeline/...
+- [x] #11 ./voci --file testdata/sample-01.wav --iterate < /dev/null 2>&1 | grep -q RAW
 <!-- DOD:END -->

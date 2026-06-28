@@ -1,12 +1,14 @@
 ---
 id: TASK-2
 title: 上下文检索层：工具无关的 context_builder
-status: 'Epic: Proposal'
+status: 'Basic: Ready'
 assignee: []
 created_date: '2026-06-27 13:57'
+updated_date: '2026-06-28 01:00'
 labels:
-  - 'kind:epic'
-dependencies: []
+  - 'kind:basic'
+dependencies:
+  - TASK-1
 priority: high
 ordinal: 2000
 ---
@@ -14,25 +16,26 @@ ordinal: 2000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-构建 voci 的核心上下文检索能力，工具无关（tool-agnostic），为 ASR 提示与意图改写提供项目感知。
+将 TASK-1 中的最小上下文构建器抽象为可复用、可扩展的独立模块（工具无关）。
 
-## 目标
-将「当前项目状态」转化为两类产物：
-1. asr_hint：注入 ASR 模型的术语/任务 id 提示文本（提升专有名词识别）
-2. full_context：供 LLM 改写阶段消费的结构化上下文
+## TASK-1 已交付（基线）
+`internal/context/builder.go` 的 `BuildContext(root)` 已实现：读 backlog/tasks/*.md frontmatter（id/title/status）、CLAUDE.md、git log --oneline -10 → 拼接为单一 asr_hint 字符串。TASK-8/9/10 在此基础上优化提示词。
 
-## 上下文源（可插拔）
-- backlog task list（--plain）→ 近期任务 id + title + status
-- CLAUDE.md / AGENTS.md → 项目名、术语约定、L0 Config
-- git log --oneline -N → 最近变更主题
-- meta-cc session signals（可选，via MCP 或直接读 JSONL）
+## 本任务增量（相对基线）
+1. **source 插件化**：将三个来源（backlog/CLAUDE.md/git）重构为注册式 source 接口，缺失时静默降级
+2. **provenance**：每条上下文标注来源，供改写阶段引用
+3. **full_context**：除 asr_hint（窄，给 ASR 纠错）外，产出结构化 full_context（宽，给 LLM 改写消费）
+4. **context_cache.json**：快照缓存，避免每次全量读取
+5. （可选）meta-cc session signals 作为新增 source
+
+## 降级理由（Epic → Basic）
+最小版已在 TASK-1 落地，剩余仅为「重构 + 4 个局部特性」，规模小于 TASK-1 本身，单个 TDD pass 可完成。
 
 ## 设计要求
-- source 以插件形式注册，缺失时静默降级（不阻塞管道）
-- 输出带 provenance：每条上下文标注来源，便于改写阶段引用
-- 提供 context_cache.json 快照，避免每次重复全量读取
-- 与具体 AI 工具解耦：context_builder 不知道下游是 Claude Code 还是 Codex
+- 与下游 AI 工具解耦：context_builder 不知道下游是 Claude Code 还是 Codex
+- 语言：Go；测试用 httptest/临时目录隔离，不依赖真实 repo
 
-## 与原型的关系
-原型 Epic 内联实现 Stage 1 的最小版本；本 Epic 将其抽象为可复用、可扩展的独立模块。
+## 不做
+- 下游工具适配（见 TASK-5）
+- 意图解释（见 TASK-3）
 <!-- SECTION:DESCRIPTION:END -->

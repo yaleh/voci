@@ -7,58 +7,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/yalehu/voci/internal/intent"
 	"github.com/yalehu/voci/internal/ollama"
 	"github.com/yalehu/voci/internal/pipeline"
 )
-
-// helpers
-
-func newTestServer() *Server {
-	return NewServer(
-		func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return "raw transcript", nil
-		},
-		func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
-			return "hinted text", nil
-		},
-		func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
-			return "rewritten text", nil
-		},
-		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{
-				Kind:      intent.KindDirectPrompt,
-				Rewritten: rewritten,
-			}, nil
-		},
-		"test-api-key",
-		func(ctx context.Context, messages []ollama.Message) (string, error) {
-			return "chat response", nil
-		},
-		"",
-	)
-}
-
-func postJSON(t *testing.T, ts *httptest.Server, body string) *http.Response {
-	t.Helper()
-	resp, err := http.Post(ts.URL, "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("POST failed: %v", err)
-	}
-	return resp
-}
-
-func decodeResponse(t *testing.T, resp *http.Response) Response {
-	t.Helper()
-	var r Response
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		t.Fatalf("decode response failed: %v", err)
-	}
-	return r
-}
 
 // Phase A tests
 
@@ -303,5 +257,28 @@ func TestServer_ToolsCall_ASRError(t *testing.T) {
 	}
 	if r.Error.Code != -32603 {
 		t.Errorf("expected error code -32603, got %d", r.Error.Code)
+	}
+}
+
+// TestServer_ToolsCall_RawTranscript asserts that RawTranscript is populated from the ASR output.
+func TestServer_ToolsCall_RawTranscript(t *testing.T) {
+	const expectedRaw = "raw-asr-output"
+
+	srv := newDeterministicServer(expectedRaw, "rewritten text")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := `{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"mcp__voci__transcribe","arguments":{"audio_path":"/tmp/test.wav"}}}`
+	resp := postJSON(t, ts, body)
+	defer resp.Body.Close()
+
+	r := decodeResponse(t, resp)
+	if r.Error != nil {
+		t.Fatalf("unexpected error: %v", r.Error)
+	}
+
+	proposal := decodeProposal(t, r)
+	if proposal.RawTranscript != expectedRaw {
+		t.Errorf("expected RawTranscript=%q, got %q", expectedRaw, proposal.RawTranscript)
 	}
 }

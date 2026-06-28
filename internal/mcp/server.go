@@ -191,6 +191,8 @@ func (s *Server) toolsCall(req Request) Response {
 		return errorResponse(req.ID, -32603, "classify error: "+err.Error())
 	}
 
+	proposal.RawTranscript = raw
+
 	proposalJSON, err := json.Marshal(proposal)
 	if err != nil {
 		return errorResponse(req.ID, -32603, "marshal error: "+err.Error())

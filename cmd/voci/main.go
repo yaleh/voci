@@ -6,17 +6,21 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 
 	"github.com/yalehu/voci/internal/asr"
 	"github.com/yalehu/voci/internal/config"
 	vocicontext "github.com/yalehu/voci/internal/context"
+	"github.com/yalehu/voci/internal/executor"
+	"github.com/yalehu/voci/internal/gate"
+	"github.com/yalehu/voci/internal/intent"
 	"github.com/yalehu/voci/internal/ollama"
 	"github.com/yalehu/voci/internal/output"
 	"github.com/yalehu/voci/internal/pipeline"
 )
 
 func main() {
-	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil); err != nil {
+	if err := run(os.Args[1:], os.Stdout, os.Stdin, nil, nil, nil, nil, nil, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -25,6 +29,15 @@ func main() {
 // Dependency types for testing
 type TranscribeFn func(ctx context.Context, key, audioPath, apiURL string) (string, error)
 type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error)
+type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
+type GateFn func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult
+type ExecuteFn func(proposal intent.ActionProposal) (string, error)
+
+// defaultCmdRunner runs an external command and returns its combined output.
+func defaultCmdRunner(name string, args ...string) (string, error) {
+	out, err := exec.Command(name, args...).Output()
+	return string(out), err
+}
 
 // run is the testable entry point.
 func run(
@@ -34,12 +47,16 @@ func run(
 	transcribeFn TranscribeFn,
 	hintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error),
 	rewriteFnOpt RewriteFn,
+	classifyFn ClassifyFn,
+	gateFn GateFn,
+	executeFn ExecuteFn,
 ) error {
 	fs := flag.NewFlagSet("voci", flag.ContinueOnError)
 	fs.SetOutput(stdout)
 
 	fileFlag := fs.String("file", "", "path to audio WAV file (required)")
 	iterateFlag := fs.Bool("iterate", false, "enter iterative feedback loop after initial output")
+	noGateFlag := fs.Bool("no-gate", false, "skip human confirmation gate (test only)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -82,6 +99,20 @@ func run(
 	if rewriteFnOpt == nil {
 		rewriteFnOpt = pipeline.Rewrite
 	}
+	if classifyFn == nil {
+		classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+			return intent.Classify(ctx, rewritten, fullContext, chat)
+		}
+	}
+	if gateFn == nil {
+		gateFn = gate.Run
+	}
+	if executeFn == nil {
+		executeFn = func(p intent.ActionProposal) (string, error) {
+			ex := &executor.DefaultExecutor{CmdRunner: defaultCmdRunner, Confirmed: true}
+			return ex.Execute(p)
+		}
+	}
 
 	// Stage 2: ASR transcription
 	raw, err := transcribeFn(ctx, cfg.SiliconFlowKey, *fileFlag, "")
@@ -104,12 +135,42 @@ func run(
 	// Stage 5: Output
 	output.PrintComparison(stdout, raw, hinted, rewritten)
 
-	// Stage 6: Iterate
+	// Stage 5b: Iterate (existing functionality)
 	if *iterateFlag {
 		rewriteWithFeedback := pipeline.RewriteWithFeedbackFn(rewriteFnOpt)
 		if err := pipeline.IterateLoop(ctx, rewritten, hint, stdin, stdout, chatFn, rewriteWithFeedback); err != nil {
 			return fmt.Errorf("iterate: %w", err)
 		}
+	}
+
+	// Stage 6: Classify intent
+	proposal, err := classifyFn(ctx, rewritten, hint, chatFn)
+	if err != nil {
+		return fmt.Errorf("classify: %w", err)
+	}
+
+	// Stage 7: Human gate (skipped with --no-gate)
+	if !*noGateFlag {
+		gate.PrintSummary(stdout, proposal)
+		result := gateFn(stdin, stdout, proposal)
+		if result.Action == "discard" {
+			fmt.Fprintln(stdout, "Discarded.")
+			return nil
+		}
+		if result.Action == "edit" {
+			proposal.Rewritten = result.EditedText
+		}
+	}
+
+	// Stage 8: Execute
+	execResult, err := executeFn(proposal)
+	if err != nil {
+		return fmt.Errorf("execute: %w", err)
+	}
+
+	// Stage 9: Print execution result
+	if execResult != "" {
+		fmt.Fprintln(stdout, "RESULT:", execResult)
 	}
 
 	return nil

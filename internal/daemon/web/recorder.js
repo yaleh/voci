@@ -99,10 +99,34 @@
     return body.trim();
   }
 
+  function renderDialogue(section) {
+    if (!section) { ctxDialogueEl.innerHTML = ''; return; }
+    var lines = section.split('\n').filter(function(l) { return l.trim() !== ''; });
+    var html = lines.map(function(line) {
+      var role = '', content = line;
+      if (line.startsWith('A: ')) { role = 'A'; content = line.slice(3); }
+      else if (line.startsWith('U: ')) { role = 'U'; content = line.slice(3); }
+      var label = role === 'A' ? '<b>A</b>' : role === 'U' ? '<b>U</b>' : '';
+      var threshold = 120;
+      if (content.length <= threshold || role !== 'A') {
+        return '<div class="dialogue-turn">' + label + ' <span>' + escHtml(content) + '</span></div>';
+      }
+      // Long assistant turn: collapsible
+      var preview = escHtml(content.slice(0, threshold)) + '…';
+      var full = escHtml(content);
+      return '<details class="dialogue-turn"><summary>' + label + ' ' + preview + '</summary>' + full + '</details>';
+    }).join('');
+    ctxDialogueEl.innerHTML = html || '';
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
   function renderContext(hint) {
     ctxKnownEl.textContent = extractSection(hint, '## Known Entities') || '(none)';
     ctxTasksEl.textContent = extractSection(hint, '## Active Tasks') || '(none)';
-    ctxDialogueEl.textContent = extractSection(hint, '## Recent Dialogue') || '';
+    renderDialogue(extractSection(hint, '## Recent Dialogue'));
     ctxSessionEl.textContent = extractSection(hint, '## Claude Code Session') || '';
   }
 

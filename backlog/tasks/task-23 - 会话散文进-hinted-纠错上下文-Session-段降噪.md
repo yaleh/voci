@@ -1,10 +1,10 @@
 ---
 id: TASK-23
 title: 会话散文进 hinted 纠错上下文 + Session 段降噪
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-28 15:23'
-updated_date: '2026-06-28 15:31'
+updated_date: '2026-06-28 15:50'
 labels:
   - 'kind:basic'
 dependencies: []
@@ -14,7 +14,7 @@ ordinal: 18000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-提升 ASR 纠错的上下文覆盖：当前 internal/context 的 SessionSource.parseSessionSnippet 只从会话 JSONL 抽取「编辑的文件路径 / 跑过的 bash 命令 / 用户消息里的 TASK-N」，丢弃所有对话散文。结果：刚说过/刚打过的领域词（如 Web、端口、URL、API）无法成为识别纠错信号——实测「Web 服务器」被 ASR 听成「外部服务器」且无法纠正，因为「Web」既不是 Known Entity 也不在被保留的会话结构里。本任务：(1) 让 SessionSource 额外抽取最近若干轮对话散文（user+assistant 文本），作为 RunHinted（ASR 纠错）阶段的词法信号；(2) 关键约束：散文只喂给 hinted 做词法纠错，绝不喂给 Rewrite 当展开素材（Rewrite 已收窄到只用 Known Entities，须保持隔离，防止 TASK-19 式越界重演）；(3) 给 Session 段的  降噪——只保留命令首段/可执行名，不要把多行脚本整段灌入（实测 hint 达 6885 字节，过半是 probe 脚本噪声）。
+提升 ASR 纠错的上下文覆盖：当前 internal/context 的 SessionSource.parseSessionSnippet 只从会话 JSONL 抽取「编辑的文件路径 / 跑过的 bash 命令 / 用户消息里的 TASK-N」，丢弃所有对话散文。结果：刚说过/刚打过的领域词（如 Web、端口、URL、API）无法成为识别纠错信号——实测「Web 服务器」被 ASR 听成「外部服务器」且无法纠正，因为「Web」既不是 Known Entity 也不在被保留的会话结构里。本任务：(1) 让 SessionSource 额外抽取最近若干轮对话散文（user+assistant 文本），作为 RunHinted（ASR 纠错）阶段的词法信号；(2) 关键约束：散文只喂给 hinted 做词法纠错，绝不喂给 Rewrite 当展开素材（Rewrite 已收窄到只用 Known Entities，须保持隔离，防止 TASK-19 式越界重演）；(3) 给 Session 段的 ran 降噪——只保留命令首段/可执行名，不要把多行脚本整段灌入（实测 hint 达 6885 字节，过半是 probe 脚本噪声）；(4) 在 Web UI 语音输入界面增加「上下文预览面板」——语音输入前持续显示当前 Claude Code 会话状态（Known Entities、Active Tasks），让用户在说话前就知道 pipeline 将使用哪些纠错信号，减少盲说盲猜。
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Implementation Plan
@@ -123,6 +123,32 @@ Phase C confirms `knownEntities()` already provides Rewrite isolation, so it is 
 - [ ] `grep -q 'Recent Dialogue' internal/context/session_source.go`
 - [ ] `grep -q 'SplitN' internal/context/session_source.go`
 - [ ] `grep -q 'TestKnownEntities_ExcludesRecentDialogue' internal/pipeline/pipeline_test.go`
+
+## Phase D: Web UI 上下文预览面板
+
+### Tests (write first)
+- `internal/daemon/server_test.go`: `TestHandleContext_ReturnsHint` — 构造一个带有 mock hintFn 的 Server，GET `/api/context` 返回 200，body 为 `{"hint":"..."}` 且包含 mock hintFn 的返回内容。Fails first：`/api/context` 路由尚未注册。
+- `internal/daemon/server_test.go`: `TestHandleContext_HintFnError` — hintFn 返回 error 时，GET `/api/context` 返回 500。
+
+### Implementation
+- 在 `Server` struct 新增 `hintFn func(ctx context.Context) (string, error)` 字段（与已有 `chatFn` 平行）；`NewServer` 构造时传入。
+- `cmd/voci/main.go` 的 serve 路径：把 `BuildContextWithSource(...)` 封装成 `hintFn` 注入。
+- 新增 `handleContext(w, r)` handler：调用 `hintFn`，返回 `{"hint":"<string>"}`；错误时 500。
+- 在路由表注册 `GET /api/context`。
+- 前端 `internal/daemon/web/index.html` / `recorder.js`：
+  - `setInterval` 每 5 秒 `fetch('/api/context')` 刷新。
+  - PTT 按下时额外触发一次立即刷新（消除 5s 延迟盲区）。
+  - 解析 `hint` 字符串，提取 `## Known Entities` 与 `## Active Tasks` 两段，渲染为可折叠面板（默认展开）。
+  - `## Recent Dialogue`（Phase B 新增）与 `## Claude Code Session` 原始内容默认折叠，点击可展开（避免噪声占屏）。
+  - 面板样式简洁：等宽字体，浅灰背景，不影响录音主流程的视觉焦点。
+
+### DoD
+- [ ] `go test ./internal/daemon/...`
+- [ ] `go test ./...`
+- [ ] `go build ./cmd/voci`
+- [ ] `grep -q '/api/context' internal/daemon/server.go`
+- [ ] `grep -q 'hintFn' internal/daemon/server.go`
+- [ ] `grep -q 'api/context' internal/daemon/web/recorder.js`
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -157,20 +183,43 @@ premise-ledger:
 GCL-self-report: E=8 C=1 H=0
 <!-- SECTION:NOTES:END -->
 
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+## TASK-23 完成摘要
+
+### 交付内容
+- **Phase A** (`- ran:` 降噪): `parseSessionSnippet` 对 Bash 命令用 `strings.SplitN(..., "\n", 2)[0]` 取首行，丢弃多行 heredoc/脚本体，hint 体积显著缩减。
+- **Phase B** (散文抽取): 新增 `contentBlock.Text` 字段捕获 assistant `text` 块；对 user 字符串内容和 assistant text 块收集散文 turn，应用 `maxProseTurns=6` / `maxProseCharsPerTurn=200` / `maxProseCharsTotal=1200` 上限，输出到 `## Recent Dialogue` 顶级 heading（与 `## Known Entities` 并列，structurally 不被 `knownEntities()` 截取，确保 Rewrite 隔离）。
+- **Phase C** (隔离回归): `TestKnownEntities_ExcludesRecentDialogue`（`internal/pipeline/pipeline_test.go`）断言 `## Recent Dialogue` 散文永远不出现在 `knownEntities()` 返回值中。
+- **Phase D** (`/api/context` + 前端面板): `Server.HintFn func(ctx) (string, error)` 注入字段；`GET /api/context` 返回 `{"hint":"..."}` JSON；Web UI `recorder.js` 启动时及每 5 秒 poll，PTT 按下时立即刷新；`index.html` 渲染 Known Entities / Active Tasks / Recent Dialogue / Session Activity 四个可折叠面板（前两个默认展开）。
+
+### 验收
+- `go test ./...` ✅（全绿）
+- `go build ./cmd/voci` ✅
+- 所有 19 项 DoD 检查通过
+- commit: 4375e9e
+<!-- SECTION:FINAL_SUMMARY:END -->
+
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 go test ./internal/context/...
-- [ ] #2 go test ./...
-- [ ] #3 grep -q 'SplitN' internal/context/session_source.go
-- [ ] #4 go test ./internal/context/...
-- [ ] #5 go test ./...
-- [ ] #6 grep -q 'Recent Dialogue' internal/context/session_source.go
-- [ ] #7 grep -q 'maxProseTurns' internal/context/session_source.go
-- [ ] #8 go test ./internal/pipeline/...
-- [ ] #9 go test ./...
-- [ ] #10 go test ./...
-- [ ] #11 go build ./cmd/voci
-- [ ] #12 grep -q 'Recent Dialogue' internal/context/session_source.go
-- [ ] #13 grep -q 'SplitN' internal/context/session_source.go
-- [ ] #14 grep -q 'TestKnownEntities_ExcludesRecentDialogue' internal/pipeline/pipeline_test.go
+- [x] #1 go test ./internal/context/...
+- [x] #2 go test ./...
+- [x] #3 grep -q 'SplitN' internal/context/session_source.go
+- [x] #4 go test ./internal/context/...
+- [x] #5 go test ./...
+- [x] #6 grep -q 'Recent Dialogue' internal/context/session_source.go
+- [x] #7 grep -q 'maxProseTurns' internal/context/session_source.go
+- [x] #8 go test ./internal/pipeline/...
+- [x] #9 go test ./...
+- [x] #10 go test ./...
+- [x] #11 go build ./cmd/voci
+- [x] #12 grep -q 'Recent Dialogue' internal/context/session_source.go
+- [x] #13 grep -q 'SplitN' internal/context/session_source.go
+- [x] #14 grep -q 'TestKnownEntities_ExcludesRecentDialogue' internal/pipeline/pipeline_test.go
+- [x] #15 go test ./internal/daemon/...
+- [x] #16 go build ./cmd/voci
+- [x] #17 grep -q '/api/context' internal/daemon/server.go
+- [x] #18 grep -q 'hintFn' internal/daemon/server.go
+- [x] #19 grep -q 'api/context' internal/daemon/web/recorder.js
 <!-- DOD:END -->

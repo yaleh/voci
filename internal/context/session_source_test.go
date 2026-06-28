@@ -405,9 +405,9 @@ func TestParseSessionSnippet_ExtractsRecentProse(t *testing.T) {
 }
 
 func TestParseSessionSnippet_ProseCapped(t *testing.T) {
-	// Feed 8 user turns, each >300 chars; only last 6 kept, each capped at 200 chars,
-	// so total Recent Dialogue block must be under 1200 chars, and oldest turns absent.
-	longText := strings.Repeat("X", 350)
+	// Feed 8 user turns, each >600 chars; only last 6 kept, each capped at 500 chars,
+	// so total Recent Dialogue block must be under 3000 chars (maxProseCharsTotal), and oldest turns absent.
+	longText := strings.Repeat("X", 650)
 	var lines []string
 	for i := 0; i < 8; i++ {
 		marker := ""
@@ -440,8 +440,8 @@ func TestParseSessionSnippet_ProseCapped(t *testing.T) {
 	if next := strings.Index(block[len(heading):], "\n## "); next >= 0 {
 		block = block[:len(heading)+next]
 	}
-	if len(block) > 1200 {
-		t.Errorf("## Recent Dialogue block too large: %d chars (cap 1200)", len(block))
+	if len(block) > 3000 {
+		t.Errorf("## Recent Dialogue block too large: %d chars (cap 3000)", len(block))
 	}
 	// Oldest turn absent
 	if strings.Contains(block, "OLDEST_UNIQUE_MARKER") {

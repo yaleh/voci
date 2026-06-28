@@ -185,21 +185,25 @@ func run(
 			}
 		}
 		ccAdapter := adapter.NewClaudeCodeAdapter(os.Getenv("TMUX_PANE"), "")
+		serveHint := func() string {
+			cwd, err := os.Getwd()
+			if err != nil {
+				cwd = "."
+			}
+			src, discErr := ccAdapter.DiscoverContext()
+			if discErr != nil || src == nil {
+				return vocicontext.BuildContext(cwd, nil)
+			}
+			return vocicontext.BuildContextWithSource(cwd, src, nil)
+		}
 		srv := &daemon.Server{
 			TranscribeFn: daemon.TranscribeFn(transcribeFn),
 			HintedFn:     daemon.HintedFn(hintedFn),
 			RewriteFn:    daemon.RewriteFn(rewriteFnOpt),
 			ClassifyFn:   daemon.ClassifyFn(classifyFn),
-			BuildHintFn: func() string {
-				cwd, err := os.Getwd()
-				if err != nil {
-					cwd = "."
-				}
-				src, discErr := ccAdapter.DiscoverContext()
-				if discErr != nil || src == nil {
-					return vocicontext.BuildContext(cwd, nil)
-				}
-				return vocicontext.BuildContextWithSource(cwd, src, nil)
+			BuildHintFn:  serveHint,
+			HintFn: func(_ context.Context) (string, error) {
+				return serveHint(), nil
 			},
 			ChatFn:      chatFn,
 			APIKey:      cfg.SiliconFlowKey,
@@ -256,21 +260,25 @@ func run(
 		}
 
 		ccAdapter := adapter.NewClaudeCodeAdapter(os.Getenv("TMUX_PANE"), "")
+		buildHint := func() string {
+			cwd, err := os.Getwd()
+			if err != nil {
+				cwd = "."
+			}
+			src, discErr := ccAdapter.DiscoverContext()
+			if discErr != nil || src == nil {
+				return vocicontext.BuildContext(cwd, nil)
+			}
+			return vocicontext.BuildContextWithSource(cwd, src, nil)
+		}
 		srv := &daemon.Server{
 			TranscribeFn: daemon.TranscribeFn(transcribeFn),
 			HintedFn:     daemon.HintedFn(hintedFn),
 			RewriteFn:    daemon.RewriteFn(rewriteFnOpt),
 			ClassifyFn:   daemon.ClassifyFn(classifyFn),
-			BuildHintFn: func() string {
-				cwd, err := os.Getwd()
-				if err != nil {
-					cwd = "."
-				}
-				src, discErr := ccAdapter.DiscoverContext()
-				if discErr != nil || src == nil {
-					return vocicontext.BuildContext(cwd, nil)
-				}
-				return vocicontext.BuildContextWithSource(cwd, src, nil)
+			BuildHintFn:  buildHint,
+			HintFn: func(_ context.Context) (string, error) {
+				return buildHint(), nil
 			},
 			ChatFn:    chatFn,
 			APIKey:    cfg.SiliconFlowKey,

@@ -110,9 +110,9 @@ type toolInput struct {
 }
 
 const (
-	maxProseTurns       = 6
-	maxProseCharsPerTurn = 200
-	maxProseCharsTotal  = 1200
+	maxProseTurns        = 6
+	maxProseCharsPerTurn = 500
+	maxProseCharsTotal   = 3000
 )
 
 // taskIDPattern matches TASK-N references.
@@ -164,7 +164,7 @@ func parseSessionSnippet(lines []string) string {
 					}
 				case "text":
 					if t := normalizeProse(block.Text); t != "" {
-						proseTurns = append(proseTurns, t)
+						proseTurns = append(proseTurns, "A: "+t)
 					}
 				}
 			}
@@ -176,7 +176,7 @@ func parseSessionSnippet(lines []string) string {
 					taskSet[id] = true
 				}
 				if t := normalizeProse(contentStr); t != "" {
-					proseTurns = append(proseTurns, t)
+					proseTurns = append(proseTurns, "U: "+t)
 				}
 			}
 		}
@@ -186,11 +186,13 @@ func parseSessionSnippet(lines []string) string {
 	if len(proseTurns) > maxProseTurns {
 		proseTurns = proseTurns[len(proseTurns)-maxProseTurns:]
 	}
+	// Cap per turn: prefix ("A: "/"U: ") is 3 chars; cap applies to total including prefix.
 	for i, t := range proseTurns {
 		if len(t) > maxProseCharsPerTurn {
 			proseTurns[i] = t[:maxProseCharsPerTurn]
 		}
 	}
+	// maxProseCharsPerTurn = 500 means up to 497 chars of content after the 3-char prefix.
 
 	hasSession := len(fileSet) > 0 || len(cmdSet) > 0 || len(taskSet) > 0
 	hasProse := len(proseTurns) > 0

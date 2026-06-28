@@ -170,6 +170,60 @@ func TestRunHintedGolden(t *testing.T) {
 	}
 }
 
+func TestRunHintedPromptDisambiguatesSameCategory(t *testing.T) {
+	hint := "## Known Entities\n- dash dash file: --file\n- dash dash iterate: --iterate\n"
+	var capturedSystem string
+	fakeFn := func(ctx context.Context, msgs []ollama.Message) (string, error) {
+		for _, m := range msgs {
+			if m.Role == "system" {
+				capturedSystem = m.Content
+			}
+		}
+		return "corrected", nil
+	}
+	_, err := RunHinted(context.Background(), "dash dash file", hint, fakeFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower := strings.ToLower(capturedSystem)
+	if !strings.Contains(lower, "most closely") && !strings.Contains(lower, "phonetically") && !strings.Contains(lower, "closest") {
+		t.Errorf("system prompt missing disambiguation keyword (most closely/phonetically/closest): %q", capturedSystem)
+	}
+	if !strings.Contains(capturedSystem, "--file") {
+		t.Errorf("system prompt missing '--file': %q", capturedSystem)
+	}
+	if !strings.Contains(capturedSystem, "--iterate") {
+		t.Errorf("system prompt missing '--iterate': %q", capturedSystem)
+	}
+}
+
+func TestRunHintedPromptDisambiguatesTaskIDs(t *testing.T) {
+	hint := "## Known Entities\n- task one: TASK-1\n- task eight: TASK-8\n"
+	var capturedSystem string
+	fakeFn := func(ctx context.Context, msgs []ollama.Message) (string, error) {
+		for _, m := range msgs {
+			if m.Role == "system" {
+				capturedSystem = m.Content
+			}
+		}
+		return "corrected", nil
+	}
+	_, err := RunHinted(context.Background(), "task one", hint, fakeFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower := strings.ToLower(capturedSystem)
+	if !strings.Contains(lower, "most closely") && !strings.Contains(lower, "phonetically") && !strings.Contains(lower, "closest") {
+		t.Errorf("system prompt missing disambiguation keyword (most closely/phonetically/closest): %q", capturedSystem)
+	}
+	if !strings.Contains(capturedSystem, "TASK-1") {
+		t.Errorf("system prompt missing 'TASK-1': %q", capturedSystem)
+	}
+	if !strings.Contains(capturedSystem, "TASK-8") {
+		t.Errorf("system prompt missing 'TASK-8': %q", capturedSystem)
+	}
+}
+
 func TestRewritePassesThroughAmbiguous(t *testing.T) {
 	fakeChatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
 		return "[ambiguous] unclear intent", nil

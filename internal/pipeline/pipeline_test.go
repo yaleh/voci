@@ -224,6 +224,34 @@ func TestRunHintedPromptDisambiguatesTaskIDs(t *testing.T) {
 	}
 }
 
+func TestRunHintedPromptConstrainsPathExpansion(t *testing.T) {
+	hint := "- inter nul pipeline: internal/pipeline\n"
+	var capturedSystem string
+	fakeFn := func(ctx context.Context, msgs []ollama.Message) (string, error) {
+		for _, m := range msgs {
+			if m.Role == "system" {
+				capturedSystem = m.Content
+			}
+		}
+		return "corrected", nil
+	}
+	_, err := RunHinted(context.Background(), "pipeline stage", hint, fakeFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lower := strings.ToLower(capturedSystem)
+	if !strings.Contains(lower, "package") && !strings.Contains(lower, "import") && !strings.Contains(lower, "path") {
+		t.Errorf("system prompt missing path-qualification constraint (package/import/path): %q", capturedSystem)
+	}
+	// Existing instructions preserved
+	if !strings.Contains(lower, "replace") {
+		t.Errorf("system prompt missing 'replace': %q", capturedSystem)
+	}
+	if !strings.Contains(lower, "canonical") {
+		t.Errorf("system prompt missing 'canonical': %q", capturedSystem)
+	}
+}
+
 func TestRewritePassesThroughAmbiguous(t *testing.T) {
 	fakeChatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
 		return "[ambiguous] unclear intent", nil

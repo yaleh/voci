@@ -24,6 +24,7 @@ func RunHinted(ctx context.Context, raw, hint string, chatFn ChatFn) (string, er
 	systemPrompt.WriteString("with the exact canonical spelling.\n")
 	systemPrompt.WriteString("Apply all substitutions first, then fix remaining grammar.\n")
 	systemPrompt.WriteString("When multiple candidates of the same kind (e.g. task IDs sharing a 'TASK-' prefix, or CLI flags sharing '--') could match a phrase, choose the candidate whose spoken form most closely matches the exact words in the ASR transcription — do not default to the first candidate listed.\n")
+	systemPrompt.WriteString("Only substitute a package path such as 'internal/xxx' when the transcription explicitly refers to a Go package or import path — if the word appears as a standalone concept (e.g. 'pipeline stage', 'context object'), leave it as is.\n")
 	systemPrompt.WriteString("Return only the corrected text, nothing else.\n")
 	if hint != "" {
 		systemPrompt.WriteString("\n")

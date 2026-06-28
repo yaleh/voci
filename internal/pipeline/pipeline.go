@@ -23,6 +23,7 @@ func RunHinted(ctx context.Context, raw, hint string, chatFn ChatFn) (string, er
 	systemPrompt.WriteString("replace any occurrence of the spoken-form in the transcription\n")
 	systemPrompt.WriteString("with the exact canonical spelling.\n")
 	systemPrompt.WriteString("Apply all substitutions first, then fix remaining grammar.\n")
+	systemPrompt.WriteString("When multiple candidates of the same kind (e.g. task IDs sharing a 'TASK-' prefix, or CLI flags sharing '--') could match a phrase, choose the candidate whose spoken form most closely matches the exact words in the ASR transcription — do not default to the first candidate listed.\n")
 	systemPrompt.WriteString("Return only the corrected text, nothing else.\n")
 	if hint != "" {
 		systemPrompt.WriteString("\n")

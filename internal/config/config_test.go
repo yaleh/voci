@@ -216,6 +216,78 @@ func TestLoadConfigVociConfigEnvOverridesPath(t *testing.T) {
 	}
 }
 
+func TestLoadConfigCFFieldsFromEnv(t *testing.T) {
+	t.Setenv("ASR_API_KEY", "sk-test")
+	t.Setenv("CLOUDFLARE_API_TOKEN", "cf-token-env")
+	t.Setenv("CF_ACCOUNT_ID", "acct-env")
+	t.Setenv("CF_ZONE_ID", "zone-env")
+	t.Setenv("CF_TUNNEL_DOMAIN", "voci.env.example.com")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudflareAPIToken != "cf-token-env" {
+		t.Errorf("CloudflareAPIToken: want cf-token-env, got %q", cfg.CloudflareAPIToken)
+	}
+	if cfg.CloudflareAccountID != "acct-env" {
+		t.Errorf("CloudflareAccountID: want acct-env, got %q", cfg.CloudflareAccountID)
+	}
+	if cfg.CloudflareZoneID != "zone-env" {
+		t.Errorf("CloudflareZoneID: want zone-env, got %q", cfg.CloudflareZoneID)
+	}
+	if cfg.CloudflareTunnelDomain != "voci.env.example.com" {
+		t.Errorf("CloudflareTunnelDomain: want voci.env.example.com, got %q", cfg.CloudflareTunnelDomain)
+	}
+}
+
+func TestLoadConfigCFFieldsFromFile(t *testing.T) {
+	t.Setenv("CLOUDFLARE_API_TOKEN", "")
+	t.Setenv("CF_ACCOUNT_ID", "")
+	t.Setenv("CF_ZONE_ID", "")
+	t.Setenv("CF_TUNNEL_DOMAIN", "")
+	t.Setenv("ASR_API_KEY", "sk-test")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	os.MkdirAll(dir+"/.config/voci", 0755)
+	yaml := "cloudflare_api_token: cf-file-token\ncloudflare_account_id: acct-file\ncloudflare_zone_id: zone-file\ncloudflare_tunnel_domain: voci.file.example.com\n"
+	os.WriteFile(dir+"/.config/voci/config.yaml", []byte(yaml), 0644)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudflareAPIToken != "cf-file-token" {
+		t.Errorf("CloudflareAPIToken: want cf-file-token, got %q", cfg.CloudflareAPIToken)
+	}
+	if cfg.CloudflareAccountID != "acct-file" {
+		t.Errorf("CloudflareAccountID: want acct-file, got %q", cfg.CloudflareAccountID)
+	}
+	if cfg.CloudflareZoneID != "zone-file" {
+		t.Errorf("CloudflareZoneID: want zone-file, got %q", cfg.CloudflareZoneID)
+	}
+	if cfg.CloudflareTunnelDomain != "voci.file.example.com" {
+		t.Errorf("CloudflareTunnelDomain: want voci.file.example.com, got %q", cfg.CloudflareTunnelDomain)
+	}
+}
+
+func TestLoadConfigCFFieldsEnvOverridesFile(t *testing.T) {
+	t.Setenv("CLOUDFLARE_API_TOKEN", "cf-env-wins")
+	t.Setenv("CF_ACCOUNT_ID", "")
+	t.Setenv("CF_ZONE_ID", "")
+	t.Setenv("CF_TUNNEL_DOMAIN", "")
+	t.Setenv("ASR_API_KEY", "sk-test")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	os.MkdirAll(dir+"/.config/voci", 0755)
+	os.WriteFile(dir+"/.config/voci/config.yaml", []byte("cloudflare_api_token: cf-file-ignored\n"), 0644)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudflareAPIToken != "cf-env-wins" {
+		t.Errorf("CloudflareAPIToken: want cf-env-wins, got %q", cfg.CloudflareAPIToken)
+	}
+}
+
 func TestLoadConfigASRFieldsFromFile(t *testing.T) {
 	t.Setenv("ASR_PROVIDER", "")
 	t.Setenv("ASR_API_KEY", "")

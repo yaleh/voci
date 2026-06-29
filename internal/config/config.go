@@ -18,6 +18,13 @@ type Config struct {
 	ASRAPIKey      string
 	ASRAPIURL      string
 	ASRModel       string
+
+	// Cloudflare managed tunnel (optional). When all four are set, voci serve --share
+	// uses a stable Named Tunnel instead of a Quick Tunnel.
+	CloudflareAPIToken     string
+	CloudflareAccountID    string
+	CloudflareZoneID       string
+	CloudflareTunnelDomain string
 }
 
 type fileConfig struct {
@@ -28,6 +35,11 @@ type fileConfig struct {
 	ASRAPIKey         string `yaml:"asr_api_key"`
 	ASRAPIURL         string `yaml:"asr_api_url"`
 	ASRModel          string `yaml:"asr_model"`
+
+	CloudflareAPIToken     string `yaml:"cloudflare_api_token"`
+	CloudflareAccountID    string `yaml:"cloudflare_account_id"`
+	CloudflareZoneID       string `yaml:"cloudflare_zone_id"`
+	CloudflareTunnelDomain string `yaml:"cloudflare_tunnel_domain"`
 }
 
 // LoadConfig reads configuration from environment variables first,
@@ -44,6 +56,10 @@ func LoadConfig() (Config, error) {
 	cfg.ASRAPIKey = os.Getenv("ASR_API_KEY")
 	cfg.ASRAPIURL = os.Getenv("ASR_API_URL")
 	cfg.ASRModel = os.Getenv("ASR_MODEL")
+	cfg.CloudflareAPIToken = os.Getenv("CLOUDFLARE_API_TOKEN")
+	cfg.CloudflareAccountID = os.Getenv("CF_ACCOUNT_ID")
+	cfg.CloudflareZoneID = os.Getenv("CF_ZONE_ID")
+	cfg.CloudflareTunnelDomain = os.Getenv("CF_TUNNEL_DOMAIN")
 
 	// Try to load from file; VOCI_CONFIG overrides the default path.
 	cfgPath := os.Getenv("VOCI_CONFIG")
@@ -77,6 +93,18 @@ func LoadConfig() (Config, error) {
 				}
 				if cfg.ASRModel == "" && fc.ASRModel != "" {
 					cfg.ASRModel = fc.ASRModel
+				}
+				if cfg.CloudflareAPIToken == "" && fc.CloudflareAPIToken != "" {
+					cfg.CloudflareAPIToken = fc.CloudflareAPIToken
+				}
+				if cfg.CloudflareAccountID == "" && fc.CloudflareAccountID != "" {
+					cfg.CloudflareAccountID = fc.CloudflareAccountID
+				}
+				if cfg.CloudflareZoneID == "" && fc.CloudflareZoneID != "" {
+					cfg.CloudflareZoneID = fc.CloudflareZoneID
+				}
+				if cfg.CloudflareTunnelDomain == "" && fc.CloudflareTunnelDomain != "" {
+					cfg.CloudflareTunnelDomain = fc.CloudflareTunnelDomain
 				}
 			}
 		}

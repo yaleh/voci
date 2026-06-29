@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yaleh/voci/internal/adapter"
 	"github.com/yaleh/voci/internal/asr"
@@ -39,7 +40,7 @@ func main() {
 	})
 	if err := dispatch(os.Args[1:], os.Stdout, os.Stdin,
 		nil, nil, nil, nil, nil, nil, nil, nil,
-		buildHintFn, ccAdapter.Deliver, nil, nil,
+		buildHintFn, ccAdapter.Deliver, nil, nil, nil,
 	); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -64,9 +65,10 @@ func dispatch(
 	deliverFn func(intent.ActionProposal) error,
 	startDaemonFn StartDaemonFn,
 	startServeFn StartServeFn,
+	startManagedTunnelFn StartManagedTunnelFn,
 ) error {
 	fwd := func(a []string) error {
-		return run(a, stdout, stdin, transcribeFn, hintedFn, rewriteFnOpt, classifyFn, gateFn, executeFn, injectFn, startMCPServerFn, buildHintFn, deliverFn, startDaemonFn, startServeFn)
+		return run(a, stdout, stdin, transcribeFn, hintedFn, rewriteFnOpt, classifyFn, gateFn, executeFn, injectFn, startMCPServerFn, buildHintFn, deliverFn, startDaemonFn, startServeFn, startManagedTunnelFn)
 	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return fwd(args)
@@ -95,6 +97,17 @@ type StartMCPServerFn func(addr string) error
 type BuildHintFn func(root string) string
 type StartDaemonFn func(addr, eventsPath string, buildHintFn func() string) error
 type StartServeFn func(addr string, eventWriter io.Writer, buildHintFn func() string) error
+type StartManagedTunnelFn func(ctx context.Context, cfg daemon.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error)
+
+// firstNonEmpty returns the first non-empty string from the arguments.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // defaultCmdRunner runs an external command and returns its combined output.
 func defaultCmdRunner(name string, args ...string) (string, error) {
@@ -138,6 +151,7 @@ func run(
 	deliverFn func(intent.ActionProposal) error,
 	startDaemonFn StartDaemonFn,
 	startServeFn StartServeFn,
+	startManagedTunnelFn StartManagedTunnelFn,
 ) error {
 	fs := flag.NewFlagSet("voci", flag.ContinueOnError)
 	fs.SetOutput(stdout)
@@ -269,7 +283,32 @@ func run(
 			defer tunnelCancel()
 			tunnelLogW, tunnelLogClose := openCloudflaredLog()
 			defer tunnelLogClose()
-			tunnelCmd, publicURL, tunnelErr := daemon.StartTunnel(tunnelCtx, port, io.MultiWriter(os.Stderr, tunnelLogW))
+			logW := io.MultiWriter(os.Stderr, tunnelLogW)
+
+			cfToken := firstNonEmpty(os.Getenv("CLOUDFLARE_API_TOKEN"), cfg.CloudflareAPIToken)
+			cfAccount := firstNonEmpty(os.Getenv("CF_ACCOUNT_ID"), cfg.CloudflareAccountID)
+			cfZone := firstNonEmpty(os.Getenv("CF_ZONE_ID"), cfg.CloudflareZoneID)
+			cfDomain := firstNonEmpty(os.Getenv("CF_TUNNEL_DOMAIN"), cfg.CloudflareTunnelDomain)
+
+			var tunnelCmd *exec.Cmd
+			var publicURL string
+			var tunnelErr error
+			if cfToken != "" && cfAccount != "" && cfZone != "" && cfDomain != "" {
+				managedCfg := daemon.ManagedTunnelConfig{
+					APIToken:     cfToken,
+					AccountID:    cfAccount,
+					ZoneID:       cfZone,
+					TunnelDomain: cfDomain,
+					TTL:          20 * time.Hour,
+				}
+				managedFn := startManagedTunnelFn
+				if managedFn == nil {
+					managedFn = daemon.StartManagedTunnel
+				}
+				tunnelCmd, publicURL, tunnelErr = managedFn(tunnelCtx, managedCfg, port, logW)
+			} else {
+				tunnelCmd, publicURL, tunnelErr = daemon.StartTunnel(tunnelCtx, port, logW)
+			}
 			if tunnelErr != nil {
 				return fmt.Errorf("--share: %w", tunnelErr)
 			}

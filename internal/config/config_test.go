@@ -166,6 +166,7 @@ func TestLoadConfigASRAPIKeyFallsBackToSiliconFlowKey(t *testing.T) {
 }
 
 func TestLoadConfigASRProviderDefaultsSiliconflow(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SILICONFLOW_API_KEY", "sk-test")
 	t.Setenv("ASR_PROVIDER", "")
 	cfg, err := LoadConfig()

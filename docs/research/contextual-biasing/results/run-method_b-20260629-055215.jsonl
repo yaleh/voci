@@ -1,0 +1,14 @@
+{"case_id": "sample-21", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-pure", "reference": "把这个 bug 加到 backlog 里"}
+{"case_id": "sample-22", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-technical", "reference": "修复 build context with source 里的 bug"}
+{"case_id": "sample-23", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-technical", "reference": "检查 builder dot go 的逻辑"}
+{"case_id": "sample-24", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-technical", "reference": "dynamic entities source 的测试挂了，看看怎么回事"}
+{"case_id": "sample-25", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-technical", "reference": "给 run hinted 加一个单元测试"}
+{"case_id": "sample-26", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-technical", "reference": "pipeline go 里的 rewrite 函数需要优化"}
+{"case_id": "sample-27", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-technical", "reference": "检查 siliconflow api key 有没有配置"}
+{"case_id": "sample-28", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-mixed", "reference": "Push task 29 to ready"}
+{"case_id": "sample-30", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-mixed", "reference": "把 iterate flag 加到命令里"}
+{"case_id": "sample-31", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-mixed", "reference": "用 go test dash dash run 跑一下这个测试"}
+{"case_id": "sample-32", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-mixed", "reference": "Check the internal/asr module for timeout issues"}
+{"case_id": "sample-33", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-mixed", "reference": "把 TASK-32 的 known entities 逻辑 review 一下"}
+{"case_id": "sample-34", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-mixed", "reference": "Fix the DynamicEntitiesSource benchmark"}
+{"case_id": "sample-35", "method": "method_b", "hypothesis": "", "latency_s": 0.0, "entity_recall_exact": 0.0, "entity_recall_fuzzy": 0.0, "category": "zh-mixed", "reference": "给 gemma4 的 adapter 加 supports hints 字段"}

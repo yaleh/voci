@@ -409,3 +409,28 @@ func TestBuildContextBackwardCompat(t *testing.T) {
 		t.Error("expected non-empty result from BuildContext with nil gitRunner")
 	}
 }
+
+// ---- TASK-32: DynamicEntitiesSource wired into defaultBuilder ----
+
+func TestDefaultBuilder_HasDynamicEntitiesSource(t *testing.T) {
+	b := defaultBuilder(t.TempDir(), nil)
+	for _, src := range b.Sources {
+		if src.Name() == "dynamic_entities" {
+			return
+		}
+	}
+	t.Error("defaultBuilder should register a dynamic_entities source")
+}
+
+func TestBuildContextWithSource_DynamicTokensInAsrHint(t *testing.T) {
+	dir := t.TempDir()
+	// Register DynamicEntitiesSource with a TextFn that returns known tokens
+	b := defaultBuilder(dir, noopGit)
+	b.Register(&DynamicEntitiesSource{TextFn: func() string {
+		return "FetchToolAdapter is the main component"
+	}})
+	result := b.Build(dir)
+	if !strings.Contains(result.AsrHint, "FetchToolAdapter: FetchToolAdapter") {
+		t.Errorf("expected 'FetchToolAdapter: FetchToolAdapter' in AsrHint, got: %s", result.AsrHint)
+	}
+}

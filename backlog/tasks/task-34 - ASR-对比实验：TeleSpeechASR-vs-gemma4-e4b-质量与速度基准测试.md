@@ -239,6 +239,58 @@ Commit: 41586a4cac3a25126e8cffbdaa66914087e88a52
 3. 重新生成对应 WAV 文件（go run ./scripts/gensamples，已有文件需先删除或更名）
 4. 重跑 runner.py，生成新一轮 run-*.jsonl
 5. 重新生成 report，与第一次结果对比
+
+## 第二次执行记录（2026-06-29）—— 修正测试数据后重跑
+
+结果文件：docs/research/asr-bench/results/run-20260629-044502.jsonl / report-20260629-044502.md
+
+### 修正内容
+- zh-technical 全部 6 条（sample-22–27）tts_input 改为自然朗读形式：
+  - `BuildContextWithSource` → `"build context with source"`
+  - `internal/context/builder.go` → `"builder dot go"`
+  - `DynamicEntitiesSource` → `"dynamic entities source"`
+  - `RunHinted` → `"run hinted"`
+  - `pipeline.go` + `Rewrite` → `"pipeline go"` + `"rewrite"`
+  - `SILICONFLOW_API_KEY` → `"siliconflow api key"`
+- zh-mixed sample-30（`--iterate` → `"iterate flag"`）、sample-35（`supports_hints` → `"supports hints"`）同步修正
+- reference 字段与 tts_input 保持一致
+- 删除并重录 8 个 WAV 文件（sample-22–27, sample-30, sample-35）
+
+### 第二次执行结果摘要
+| 模型 | hint_mode | WER | CER | entity_recall | latency p50 |
+|------|-----------|-----|-----|---------------|-------------|
+| gemma4 | off | 85.5% | 51.1% | 28.6% | 0.933s |
+| gemma4 | on  | 93.1% | 46.2% | 28.6% | 0.932s |
+| telespeech | off | 90.1% | 32.3% | 14.3% | 0.742s |
+
+#### zh-pure 分类
+| 模型 | hint_mode | WER | CER | entity_recall |
+|------|-----------|-----|-----|---------------|
+| gemma4 | off | 90.0% | 45.1% | 100.0% |
+| gemma4 | on  | 93.3% | 33.8% | 100.0% |
+| telespeech | off | 100.0% | 12.8% | 100.0% |
+
+#### zh-technical 分类（修正后）
+| 模型 | hint_mode | WER | CER | entity_recall |
+|------|-----------|-----|-----|---------------|
+| gemma4 | off | 96.7% | 71.2% | 16.7% |
+| gemma4 | on  | 111.2% | 58.1% | 16.7% |
+| telespeech | off | 95.2% | 53.2% | 0.0% |
+
+#### zh-mixed 分类
+| 模型 | hint_mode | WER | CER | entity_recall |
+|------|-----------|-----|-----|---------------|
+| gemma4 | off | 73.8% | 40.7% | 28.6% |
+| gemma4 | on  | 79.4% | 46.7% | 28.6% |
+| telespeech | off | 78.9% | 31.3% | 14.3% |
+
+### 结论对比（第一次 vs 第二次）
+- 整体 entity_recall 从 21.4% 提升至 28.6%（gemma4），测试数据质量修正有效
+- telespeech entity_recall 从 14.3% 维持不变（该模型在技术词方面能力确实有限）
+- zh-technical 类别修正后音频更自然，但两模型 entity_recall 仍低，说明该类别难度来自模型能力而非音频质量
+- hint_mode=on 依然未提升 entity_recall，且 WER 普遍高于 off（注入 hint 文本对 gemma4 整体性能无益）
+- telespeech CER（字符错误率）整体优于 gemma4，在纯中文上尤其突出（CER 12.8% vs 45.1%）
+- zh-mixed 是 gemma4 最具优势的场景（WER 73.8% vs 78.9%），语言混淆度 gemma4 也略胜（0.099 vs 0.082）
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

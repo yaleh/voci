@@ -4,7 +4,7 @@ title: ASR 迭代上下文检索实验：first-pass transcript 驱动动态 hint
 status: 'Basic: Backlog'
 assignee: []
 created_date: '2026-06-29 04:06'
-updated_date: '2026-06-29 11:26'
+updated_date: '2026-06-29 11:42'
 labels:
   - 'kind:basic'
   - 'area:asr'
@@ -16,11 +16,11 @@ ordinal: 30000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-验证"两阶段 ASR 流水线"：用本地 gemma4（快速低成本，0.9s，entity_recall=0.286）做 first-pass 粗识别，将 raw transcript 作为检索查询动态丰富 hint（从 backlog、codebase symbol 等来源），再用 Gemini-2.5-flash（生产 ASR，ADR-001）+ enriched hint 进行二次精转录，验证 entity_recall 能否超越 TASK-40 建立的 Gemini/hinted 基线（0.643）。
+验证"两阶段 Gemini 流水线"：先用 Gemini-2.5-flash 无 hint 做 first-pass 粗转录（round 0），将 raw transcript 作为检索查询动态丰富 hint（从 backlog、codebase symbol 等来源），再用 Gemini-2.5-flash + enriched hint 做 second-pass 精转录（round 1），验证 entity_recall 能否超越 TASK-40 建立的 Gemini/hinted 静态基线（0.643）。
 
 TASK-40 关键基线（本实验对照数据）：
-- gemma4 local only: entity_recall_exact=0.286, latency=0.9s（round 0 基准）
-- gemini-2.5-flash/hinted（静态 hint）: entity_recall_exact=0.643（round 1 目标上限）
+- gemini-2.5-flash/baseline（无 hint）: entity_recall_exact=0.286（round 0 对照）
+- gemini-2.5-flash/hinted（静态全量 hint）: entity_recall_exact=0.643（round 1 目标下限）
 - 实验成功标准：avg_r1 > 0.643（动态 enriched hint 超越静态 hint）
 
 本实验不修改 Go 生产代码，输出独立 Python prototype 与分析报告。
@@ -29,32 +29,32 @@ TASK-40 关键基线（本实验对照数据）：
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-// Plan: 两阶段 ASR 流水线实验 — gemma4 first-pass + Gemini enriched second-pass（基于 TASK-40 结果更新）
+// Plan: 两阶段 Gemini 流水线实验 — baseline first-pass + enriched second-pass（移除 Gemma4）
 
 ## Context
 
-TASK-40 证明 Gemini-2.5-flash 对 hint 高度响应（entity_recall +0.357），同时 gemma4 local 具备快速粗识别能力（0.9s, entity_recall=0.286）。本实验提出的两阶段架构：① gemma4 local 做 first-pass（廉价、快速，得到含噪 raw transcript）→ ② 用 raw transcript 作为检索 query 动态丰富 hint → ③ Gemini-2.5-flash + enriched hint 做 second-pass 精转录。若 avg_r1 > 0.643（TASK-40 静态 hint 基线），则说明动态 hint 带来增量价值，架构值得推进到生产。
+TASK-40 证明 Gemini-2.5-flash 对 hint 高度响应（entity_recall +0.357）。本实验测试动态 hint 是否能在静态 hint（0.643）基础上继续提升：① Gemini 无 hint 做 first-pass，得到含噪 raw transcript → ② 用 raw transcript 检索相关 backlog 任务与代码符号 → ③ Gemini + enriched_hint（base_hint + dynamic_snippet）做 second-pass 精转录。若 avg_r1 > 0.643，则说明动态检索带来增量价值，架构值得推进到生产。
 
 依赖 TASK-34 的 testcases.json 语料；基线数字引用 TASK-40（不重新跑 TASK-34）。
 
-## Phase 1: Scaffold — 搭建实验脚手架与 gemma4 静态基线复现
+## Phase 1: Scaffold — 搭建实验脚手架与 Gemini 无 hint 基线复现
 
 在 `docs/research/iterative-asr/` 下创建实验目录及核心脚本骨架：
 
 - `run_experiment.py`：主入口，接收 WAV 路径 + base_hint 字符串，运行完整实验流程并将结果写入 `results.jsonl`
 - `searcher.py`：独立检索模块，暴露 `search(query: str, repo_root: str) -> str` 接口；Phase 2 实现具体搜索逻辑，此阶段仅提供 stub（返回空字符串）
 - `metrics.py`：`entity_recall(expected: list[str], hinted: str) -> float`，大小写不敏感子串匹配，与 TASK-34/40 asr-bench 保持一致
-- `conftest.json`：记录实验超参数（`max_rounds`, `ollama_model`, `ollama_url`, `gemini_model`, `repo_root`）
+- `conftest.json`：记录实验超参数（`max_rounds`, `gemini_model`, `gemini_api_key_env`, `repo_root`）
 
-脚本从 `testdata/testcases.json` 读取 `expected_entities`，对 `sample-01` 到 `sample-15` 的每条有 wav 文件的用例执行 **round=0 基线**：调用 gemma4 local（Ollama）直接转录，使用 base_hint（不搜索），计算 entity_recall。将 `{id, round, entity_recall, transcript, latency_s}` 逐行追加到 `results.jsonl`。
+脚本从 `testdata/testcases.json` 读取 `expected_entities`，对有 wav 文件的用例执行 **round=0 基线**：调用 Gemini-2.5-flash Audio API，**不注入任何 hint**（纯转录），计算 entity_recall。将 `{id, round: 0, entity_recall, transcript, latency_s}` 逐行追加到 `results.jsonl`。
 
-Round 0 预期数字参考 TASK-40：gemma4 entity_recall≈0.286。
+Round 0 预期数字参考 TASK-40：gemini/baseline entity_recall≈0.286。
 
 ### DoD
 - [ ] `grep -q 'def main\|import\|results.jsonl' docs/research/iterative-asr/run_experiment.py`
 - [ ] `grep -q 'def search' docs/research/iterative-asr/searcher.py`
 - [ ] `grep -q 'def entity_recall' docs/research/iterative-asr/metrics.py`
-- [ ] `python3 -c "import json,pathlib; d=json.loads(pathlib.Path('docs/research/iterative-asr/conftest.json').read_text()); assert 'max_rounds' in d and 'ollama_model' in d"`
+- [ ] `python3 -c "import json,pathlib; d=json.loads(pathlib.Path('docs/research/iterative-asr/conftest.json').read_text()); assert 'max_rounds' in d and 'gemini_model' in d"`
 - [ ] `python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from metrics import entity_recall; assert entity_recall(['voci','TASK-1'], 'fix the TASK-1 login bug in the voci project') == 1.0"`
 
 ## Phase 2: Searcher — 实现 first-pass transcript 检索
@@ -83,15 +83,15 @@ internal/xxx
 - [ ] `python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('把这个修一下好吧', '.'); assert r == ''"`
 - [ ] `python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('RunHinted pipeline', '.'); assert isinstance(r, str)"`
 
-## Phase 3: Iterative Loop — gemma4 first-pass → Gemini enriched second-pass
+## Phase 3: Iterative Loop — Gemini baseline → search → Gemini enriched
 
 在 `run_experiment.py` 中为每条测试用例扩展迭代循环（max_rounds=2）：
 
 **Round 1**：
-1. 调用 gemma4 local（Ollama）做 first-pass 转录，得到 `raw_r1`（含噪）
-2. 调用 `search(raw_r1, repo_root)` 得到 `dynamic_snippet`
+1. 使用 round 0 的 raw transcript（无 hint Gemini 转录结果）作为检索 query
+2. 调用 `search(transcript_r0, repo_root)` 得到 `dynamic_snippet`
 3. 构建 `enriched_hint = base_hint + "\n" + dynamic_snippet`
-4. 调用 **Gemini-2.5-flash Audio API**（参考 `docs/research/model-eval/adapters/gemini.py`），将 `enriched_hint` 注入 prompt，得到 `transcript_r1`
+4. 再次调用 **Gemini-2.5-flash Audio API**，将 `enriched_hint` 注入 prompt，得到 `transcript_r1`
 5. 计算 `entity_recall(expected_entities, transcript_r1)`
 6. 写入 `results.jsonl`：`{id, round: 1, entity_recall, transcript, dynamic_snippet_len, latency_s}`
 
@@ -114,9 +114,9 @@ internal/xxx
 - **对比表**：每条测试用例的 entity_recall @ r0 / r1 / r2 及各轮 latency_s
 - **汇总行**：avg_r0、avg_r1、avg_r2 及各自 avg_latency_s
 - **Δ 分析**：r1 - r0（动态检索增益）、r2 - r1（第二轮边际增益）
-- **TASK-40 对比**：avg_r1 vs TASK-40 Gemini/hinted 基线（0.643）的 delta
+- **TASK-40 对比**：avg_r1 vs TASK-40 Gemini/hinted 静态基线（0.643）的 delta
 - **噪声命中率**：round 1 中 `search()` 返回非空的用例占比
-- **延迟分析**：two-stage 总延迟（gemma4 + Gemini）vs 单次 Gemini
+- **延迟分析**：两次 Gemini 调用总延迟 vs 单次 Gemini/hinted
 - **结论**：若 avg_r1 > 0.643 且噪声命中率 ≥ 50% → "可工程化"；否则 → "收益不足，建议放弃迭代路径"
 
 ### DoD
@@ -130,9 +130,10 @@ internal/xxx
 ## Constraints
 
 - 不修改任何 Go 生产代码（`internal/` 下文件只读引用）
-- Round 0：gemma4 via Ollama（cheap first-pass）；Round 1/2：Gemini-2.5-flash Audio API（参考 `docs/research/model-eval/adapters/gemini.py`）
-- Python prototype 调用 Gemini API 通过 `urllib.request` 或直接复用 gemini adapter；Ollama 通过 `urllib.request`
+- 全程使用 Gemini-2.5-flash Audio API（参考 `docs/research/model-eval/adapters/gemini.py`）；不使用本地模型
+- Python prototype 调用 Gemini API 通过 `urllib.request` 或直接复用 gemini adapter
 - max_rounds 硬编码为 2；单用例超时 120s
+- Round 0 不注入任何 hint（纯转录），round 1/2 注入 enriched_hint
 - 实验结论不自动触发生产代码变更，需人工审查 `analysis.md` 后决策
 - 成功标准：avg_r1 > 0.643（超越 TASK-40 Gemini 静态 hint 基线）
 
@@ -148,7 +149,7 @@ internal/xxx
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Plan updated post-TASK-40: second-pass model changed from Ollama/local to Gemini-2.5-flash Audio API. Round 0 baseline = gemma4 local (entity_recall≈0.286, TASK-40 reference). Success target = avg_r1 > 0.643 (exceeds TASK-40 static hint baseline). Reference adapter: docs/research/model-eval/adapters/gemini.py.
+Plan updated: removed Gemma4 local model. Architecture is now fully Gemini-based: round 0 = Gemini/no-hint (baseline ~0.286), round 1 = search(transcript_r0) → Gemini/enriched-hint (target >0.643). conftest.json now requires gemini_model instead of ollama_model. Reference adapter: docs/research/model-eval/adapters/gemini.py.
 
 cap:propose=approved
 <!-- SECTION:NOTES:END -->
@@ -158,25 +159,25 @@ cap:propose=approved
 - [ ] #1 grep -q 'def main\|import\|results.jsonl' docs/research/iterative-asr/run_experiment.py
 - [ ] #2 grep -q 'def search' docs/research/iterative-asr/searcher.py
 - [ ] #3 grep -q 'def entity_recall' docs/research/iterative-asr/metrics.py
-- [ ] #4 python3 -c "import json,pathlib; d=json.loads(pathlib.Path('docs/research/iterative-asr/conftest.json').read_text()); assert 'max_rounds' in d and 'ollama_model' in d"
-- [ ] #5 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from metrics import entity_recall; assert entity_recall(['voci','TASK-1'], 'fix the TASK-1 login bug in the voci project') == 1.0"
-- [ ] #6 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('fix the task one login bug vocal project', '.'); assert isinstance(r, str)"
-- [ ] #7 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('', '.'); assert r == ''"
-- [ ] #8 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('把这个修一下好吧', '.'); assert r == ''"
-- [ ] #9 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('RunHinted pipeline', '.'); assert isinstance(r, str)"
-- [ ] #10 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; assert any(r.get('round')==1 for r in rows), 'no round-1 rows'"
-- [ ] #11 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; assert any(r.get('round')==2 for r in rows), 'no round-2 rows'"
-- [ ] #12 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; s=[r for r in rows if r.get('summary')]; assert s and 'avg_r0' in s[-1] and 'avg_r1' in s[-1] and 'avg_r2' in s[-1]"
-- [ ] #13 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; assert any(r.get('round')==0 for r in rows), 'no round-0 baseline rows'"
-- [ ] #14 grep -q 'avg_r0' docs/research/iterative-asr/analysis.md
-- [ ] #15 grep -q 'avg_r1' docs/research/iterative-asr/analysis.md
-- [ ] #16 grep -q 'avg_r2' docs/research/iterative-asr/analysis.md
-- [ ] #17 grep -qE 'Δ|delta|增益' docs/research/iterative-asr/analysis.md
-- [ ] #18 grep -q '噪声命中率' docs/research/iterative-asr/analysis.md
-- [ ] #19 grep -qE '可工程化|收益不足' docs/research/iterative-asr/analysis.md
-- [ ] #20 test -d docs/research/iterative-asr
-- [ ] #21 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; rounds=set(r.get('round') for r in rows if not r.get('summary')); assert {0,1,2}.issubset(rounds), f'missing rounds: {rounds}'"
-- [ ] #22 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; s=next(r for r in rows if r.get('summary')); assert s['avg_r1'] >= s['avg_r0'] - 0.05, 'avg_r1 catastrophically below baseline'"
-- [ ] #23 grep -qE 'avg_r0.*avg_r1|avg_r1.*avg_r2' docs/research/iterative-asr/analysis.md
-- [ ] #24 grep -qE '可工程化|收益不足' docs/research/iterative-asr/analysis.md
+- [ ] #4 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from metrics import entity_recall; assert entity_recall(['voci','TASK-1'], 'fix the TASK-1 login bug in the voci project') == 1.0"
+- [ ] #5 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('fix the task one login bug vocal project', '.'); assert isinstance(r, str)"
+- [ ] #6 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('', '.'); assert r == ''"
+- [ ] #7 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('把这个修一下好吧', '.'); assert r == ''"
+- [ ] #8 python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('RunHinted pipeline', '.'); assert isinstance(r, str)"
+- [ ] #9 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; assert any(r.get('round')==1 for r in rows), 'no round-1 rows'"
+- [ ] #10 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; assert any(r.get('round')==2 for r in rows), 'no round-2 rows'"
+- [ ] #11 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; s=[r for r in rows if r.get('summary')]; assert s and 'avg_r0' in s[-1] and 'avg_r1' in s[-1] and 'avg_r2' in s[-1]"
+- [ ] #12 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; assert any(r.get('round')==0 for r in rows), 'no round-0 baseline rows'"
+- [ ] #13 grep -q 'avg_r0' docs/research/iterative-asr/analysis.md
+- [ ] #14 grep -q 'avg_r1' docs/research/iterative-asr/analysis.md
+- [ ] #15 grep -q 'avg_r2' docs/research/iterative-asr/analysis.md
+- [ ] #16 grep -qE 'Δ|delta|增益' docs/research/iterative-asr/analysis.md
+- [ ] #17 grep -q '噪声命中率' docs/research/iterative-asr/analysis.md
+- [ ] #18 grep -qE '可工程化|收益不足' docs/research/iterative-asr/analysis.md
+- [ ] #19 test -d docs/research/iterative-asr
+- [ ] #20 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; rounds=set(r.get('round') for r in rows if not r.get('summary')); assert {0,1,2}.issubset(rounds), f'missing rounds: {rounds}'"
+- [ ] #21 python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; s=next(r for r in rows if r.get('summary')); assert s['avg_r1'] >= s['avg_r0'] - 0.05, 'avg_r1 catastrophically below baseline'"
+- [ ] #22 grep -qE 'avg_r0.*avg_r1|avg_r1.*avg_r2' docs/research/iterative-asr/analysis.md
+- [ ] #23 grep -qE '可工程化|收益不足' docs/research/iterative-asr/analysis.md
+- [ ] #24 python3 -c "import json,pathlib; d=json.loads(pathlib.Path('docs/research/iterative-asr/conftest.json').read_text()); assert 'max_rounds' in d and 'gemini_model' in d"
 <!-- DOD:END -->

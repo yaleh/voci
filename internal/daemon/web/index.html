@@ -1,50 +1,157 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>voci</title>
 <style>
-body { font-family: sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; }
-#status { font-size: 1.1em; color: #444; margin-bottom: 1em; }
-#preview { border: 1px solid #ccc; padding: 1em; border-radius: 4px; margin-bottom: 1em; }
-#preview p { margin: 0.4em 0; }
-textarea { width: 100%; box-sizing: border-box; }
-button { margin-right: 0.5em; padding: 0.4em 1em; }
-details { margin-top: 1em; border: 1px solid #ddd; border-radius: 4px; }
-summary { padding: 0.5em 1em; background: #f5f5f5; cursor: pointer; font-weight: bold; }
-details[open] summary { border-bottom: 1px solid #ddd; }
-.ctx-block { background: #fafafa; font-family: monospace; font-size: 0.85em; white-space: pre-wrap; padding: 0.8em 1em; max-height: 200px; overflow-y: auto; }
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: #07090d; overscroll-behavior: none; }
+button { cursor: pointer; border: none; background: none; font-family: inherit; }
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1a2035; border-radius: 2px; }
+
+@keyframes spin      { to { transform: rotate(360deg); } }
+@keyframes wave-a    { 0%,100% { height: 4px;  } 50% { height: 20px; } }
+@keyframes wave-b    { 0%,100% { height: 7px;  } 50% { height: 27px; } }
+@keyframes wave-c    { 0%,100% { height: 5px;  } 50% { height: 16px; } }
+@keyframes wave-d    { 0%,100% { height: 9px;  } 50% { height: 25px; } }
+@keyframes msg-in    { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes blink-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+#voci-compose::placeholder { color: #2a3a50; }
+
+#recording-wrap, #processing-wrap,
+#preview-overlay,
+#action-left-recording, #action-left-processing,
+#cancel-recording-btn, #processing-dots { display: none; }
 </style>
 </head>
 <body>
-<h1>voci</h1>
-<p id="status">Hold Space to record</p>
-<div id="preview" style="display:none">
-  <p><strong>RAW:</strong> <span id="raw"></span></p>
-  <p><strong>REWRITTEN</strong> (<code>Rewritten</code>):</p>
-  <textarea id="rewritten" rows="3"></textarea>
-  <p><strong>Kind</strong> (<code>Kind</code>): <span id="kind"></span>
-     &nbsp; <strong>Confidence:</strong> <span id="confidence"></span></p>
-  <button id="confirm">Confirm</button>
-  <button id="cancel">Cancel</button>
-</div>
 
-<details id="ctx-known" open>
-  <summary>Known Entities</summary>
-  <div class="ctx-block" id="ctx-known-body">(loading…)</div>
-</details>
-<details id="ctx-tasks" open>
-  <summary>Active Tasks</summary>
-  <div class="ctx-block" id="ctx-tasks-body">(loading…)</div>
-</details>
-<details id="ctx-dialogue">
-  <summary>Recent Dialogue</summary>
-  <div class="ctx-block" id="ctx-dialogue-body"></div>
-</details>
-<details id="ctx-session">
-  <summary>Session Activity</summary>
-  <div class="ctx-block" id="ctx-session-body"></div>
-</details>
+<div id="voci-root" style="height: 100dvh; display: flex; flex-direction: column; max-width: 420px; margin: 0 auto; position: relative; font-family: 'Space Grotesk', sans-serif; background: #07090d; color: #dde3ef; overflow: hidden;">
+
+  <!-- STATUS BAR -->
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; border-bottom: 1px solid #0e1220; flex-shrink: 0;">
+    <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.12em; color: #e4eaf5; text-transform: lowercase;">voci</span>
+    <div style="display: flex; align-items: center; gap: 9px;">
+      <button id="refresh-btn" style="font-size: 10px; color: #4a6080; font-family: 'JetBrains Mono', monospace; background: none; border: none; cursor: pointer; letter-spacing: 0.02em; padding: 0;">just now</button>
+      <div id="conn-dot" style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 5px #22c55e;"></div>
+    </div>
+  </div>
+
+  <!-- CONTEXT STRIP -->
+  <div style="display: flex; align-items: center; border-bottom: 1px solid #0e1220; flex-shrink: 0; background: #07090d;">
+    <div id="task-pills" style="display: flex; align-items: center; gap: 6px; padding: 6px 15px; flex: 1; overflow: hidden; min-height: 29px;"></div>
+    <button id="entities-toggle" style="display: flex; align-items: center; gap: 5px; padding: 6px 14px 6px 10px; border-left: 1px solid #0e1220; color: #4a6080; font-size: 9.5px; font-family: 'JetBrains Mono', monospace; background: none; border-top: none; border-right: none; border-bottom: none; cursor: pointer; flex-shrink: 0; white-space: nowrap;">
+      <span id="entities-count">0 entities</span>
+      <span id="context-chevron" style="font-size: 8px;">▸</span>
+    </button>
+  </div>
+
+  <!-- CONTEXT PANEL -->
+  <div id="context-panel" style="display: none; border-bottom: 1px solid #0e1220; flex-shrink: 0; background: #0a0c14; overflow: hidden;">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; padding: 8px 15px 9px;">
+      <div style="border-right: 1px solid #0e1220; padding-right: 12px;">
+        <div style="font-size: 9px; color: #3d5068; letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 5px;">Entities</div>
+        <div id="entities-list" style="display: flex; flex-direction: column; gap: 2px;"></div>
+      </div>
+      <div style="padding-left: 12px;">
+        <div style="font-size: 9px; color: #3d5068; letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 5px;">Tasks</div>
+        <div id="tasks-list" style="display: flex; flex-direction: column; gap: 3px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIALOGUE FEED -->
+  <div id="voci-dialogue" style="flex: 1; overflow-y: auto; padding: 12px 0 6px;"></div>
+
+  <!-- PREVIEW OVERLAY -->
+  <div id="preview-overlay" style="position: absolute; inset: 0 0 148px 0; flex-direction: column; justify-content: flex-end; pointer-events: none; z-index: 10;">
+    <div id="preview-backdrop" style="position: absolute; inset: 0; pointer-events: auto; background: rgba(7,9,13,0.85); backdrop-filter: blur(3px);"></div>
+    <div style="margin: 0 13px; background: #0e1220; border: 1px solid #1a2440; border-radius: 12px; overflow: hidden; position: relative; pointer-events: auto; box-shadow: 0 4px 40px rgba(0,0,0,0.7);">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 9px 13px; border-bottom: 1px solid #111826;">
+        <span id="preview-kind-badge" style="font-size: 9.5px; font-weight: 600; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.07em; text-transform: uppercase; background: #0c1a30; color: #5b9cf6;"></span>
+        <span id="preview-conf" style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #4a6080;"></span>
+      </div>
+      <div style="padding: 8px 13px; display: flex; flex-direction: column; gap: 5px;">
+        <div style="display: flex; gap: 8px; align-items: baseline;">
+          <span style="font-size: 9px; font-weight: 500; color: #3d5068; letter-spacing: 0.07em; text-transform: uppercase; width: 44px; flex-shrink: 0; font-family: 'JetBrains Mono', monospace;">RAW</span>
+          <span id="preview-raw" style="font-size: 11.5px; color: #5a7090; line-height: 1.45;"></span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: baseline;">
+          <span style="font-size: 9px; font-weight: 500; color: #3d5068; letter-spacing: 0.07em; text-transform: uppercase; width: 44px; flex-shrink: 0; font-family: 'JetBrains Mono', monospace;">HINTED</span>
+          <span id="preview-hinted" style="font-size: 11.5px; color: #9aaac0; line-height: 1.45;"></span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: baseline; padding: 5px 8px; background: #090c15; border-radius: 6px; border: 1px solid #141e30; margin: 1px -2px;">
+          <span style="font-size: 9px; font-weight: 600; color: #5b9cf6; letter-spacing: 0.07em; text-transform: uppercase; width: 44px; flex-shrink: 0; font-family: 'JetBrains Mono', monospace;">✦ SEND</span>
+          <span id="preview-send" style="font-size: 11.5px; color: #e4eaf5; font-weight: 500; line-height: 1.45;"></span>
+        </div>
+      </div>
+      <div id="preview-ambiguous" style="display: none; padding: 5px 13px; background: #170f04; border-top: 1px solid #2a1a06;">
+        <span style="font-size: 10.5px; color: #f97316;">Too vague to act on — re-record?</span>
+      </div>
+      <div style="display: flex; gap: 7px; padding: 9px 13px; border-top: 1px solid #111826;">
+        <button id="confirm-btn" style="flex: 1; padding: 7px 0; border-radius: 7px; font-size: 12.5px; font-weight: 500; background: #0f2219; color: #22c55e; border: 1px solid #1a3d28; font-family: inherit; cursor: pointer;">✓ Confirm</button>
+        <button id="rerecord-btn" style="flex: 1; padding: 7px 0; border-radius: 7px; font-size: 12.5px; font-weight: 500; background: #0b0e17; color: #6a7a95; border: 1px solid #141e30; font-family: inherit; cursor: pointer;">↺ Re-record</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM INPUT AREA -->
+  <div style="flex-shrink: 0; border-top: 1px solid #0d1018; background: #060810;">
+
+    <div id="text-input-wrap" style="padding: 10px 12px 0 12px;">
+      <textarea id="voci-compose" placeholder="或直接输入…" rows="3" style="width: 100%; background: #0b0e1a; border: 1px solid #131c2e; border-radius: 10px; padding: 10px 12px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; color: #e4eaf5; line-height: 1.55; resize: none; outline: none; caret-color: #5b9cf6; box-sizing: border-box; display: block;"></textarea>
+    </div>
+
+    <div id="recording-wrap" style="margin: 10px 12px 0; background: #0c0a0a; border: 1px solid #2a1212; border-radius: 10px; padding: 12px 14px; align-items: center; gap: 10px; min-height: 74px;">
+      <span id="timer-str" style="font-family: 'JetBrains Mono', monospace; font-size: 15px; color: #ef4444; font-weight: 500; min-width: 32px; animation: blink-dot 2s ease-in-out infinite;">0:00</span>
+      <div style="flex: 1; display: flex; align-items: center; gap: 3px; height: 26px;">
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-b 0.65s ease-in-out infinite;"></div>
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-a 0.58s ease-in-out infinite; animation-delay: 0.07s;"></div>
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-d 0.72s ease-in-out infinite; animation-delay: 0.14s;"></div>
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-c 0.61s ease-in-out infinite; animation-delay: 0.21s;"></div>
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-b 0.68s ease-in-out infinite; animation-delay: 0.05s;"></div>
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-a 0.75s ease-in-out infinite; animation-delay: 0.18s;"></div>
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-d 0.55s ease-in-out infinite; animation-delay: 0.09s;"></div>
+        <div style="width: 3px; border-radius: 99px; background: #ef4444; animation: wave-c 0.65s ease-in-out infinite; animation-delay: 0.03s;"></div>
+      </div>
+    </div>
+
+    <div id="processing-wrap" style="margin: 10px 12px 0; background: #0b0e1a; border: 1px solid #131c2e; border-radius: 10px; padding: 12px 14px; align-items: center; gap: 10px; min-height: 74px;">
+      <div style="width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #131c2e; border-top-color: #5b9cf6; animation: spin 0.75s linear infinite; flex-shrink: 0;"></div>
+      <span style="font-size: 11px; color: #4a6080; letter-spacing: 0.06em;">Analyzing…</span>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 14px;">
+      <div id="action-left-idle" style="display: flex; align-items: center; gap: 8px;">
+        <button id="mic-btn" style="display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 13px; border-radius: 8px; background: #1a0808; border: 1.5px solid #3a1010; color: #ef4444; font-size: 11.5px; font-family: 'Space Grotesk', sans-serif; cursor: pointer;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+          Hold to speak
+        </button>
+        <span style="font-size: 9px; color: #2a3a50; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em; white-space: nowrap;">or hold <kbd style="font-family: inherit; background: #0e1422; border: 1px solid #1a2440; border-radius: 3px; padding: 0 4px; font-size: 8.5px; color: #3a5070;">Space</kbd></span>
+      </div>
+      <div id="action-left-recording">
+        <span style="font-size: 11px; color: #3a4a60; letter-spacing: 0.03em;">松开发送</span>
+      </div>
+      <div id="action-left-processing">
+        <span style="font-size: 11px; color: #3a4a60; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em;">analyzing…</span>
+      </div>
+
+      <button id="send-btn" style="height: 34px; padding: 0 16px; border-radius: 8px; background: #090c15; border: 1px solid #0f1522; color: #252f42; font-size: 12px; font-weight: 500; font-family: 'Space Grotesk', sans-serif; cursor: default; display: flex; align-items: center; gap: 6px; transition: background 0.2s, color 0.2s, border-color 0.2s;">
+        Send
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+      </button>
+      <button id="cancel-recording-btn" style="height: 34px; padding: 0 13px; border-radius: 8px; background: none; border: 1px solid #131c2e; color: #3d5070; font-size: 11.5px; font-family: 'Space Grotesk', sans-serif; cursor: pointer;">✕ cancel</button>
+      <span id="processing-dots" style="height: 34px; padding: 0 13px; align-items: center; font-size: 11px; color: #252f42;">···</span>
+    </div>
+  </div>
+
+</div>
 
 <script src="recorder.js"></script>
 </body>

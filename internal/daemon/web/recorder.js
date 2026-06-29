@@ -1,169 +1,384 @@
 // voci PTT recorder
-// Contracts: /api/voice/transcribe, /api/voice/emit, /api/context, MediaRecorder
-// Fields from transcribe: Rewritten, RawTranscript, Kind, Confidence (ActionProposal — no json tags → capitalized)
-// Fields to emit: { text: ..., "kind": ... }
-(function() {
-  var chunks = [];
-  var recorder = null;
-  var previewedKind = 'direct_prompt';
-  var mediaStream = null;
-  var ctxTimer = null;
+// APIs: GET /api/context, POST /api/voice/transcribe, POST /api/voice/emit
+(function () {
+  var phase = 'idle'; // idle | recording | processing | preview
+  var isRecording = false;
+  var chunks = [], recorder = null, mediaStream = null;
+  var timerSecs = 0, timerInterval = null;
+  var previewData = null;
+  var contextExpanded = false;
+  var lastRefresh = Date.now();
+  var localMessages = [];
 
-  var statusEl = document.getElementById('status');
-  var previewEl = document.getElementById('preview');
-  var rawEl = document.getElementById('raw');
-  var rewrittenEl = document.getElementById('rewritten');
-  var kindEl = document.getElementById('kind');
-  var confidenceEl = document.getElementById('confidence');
-  var confirmBtn = document.getElementById('confirm');
-  var cancelBtn = document.getElementById('cancel');
+  function $(id) { return document.getElementById(id); }
 
-  var ctxKnownEl = document.getElementById('ctx-known-body');
-  var ctxTasksEl = document.getElementById('ctx-tasks-body');
-  var ctxDialogueEl = document.getElementById('ctx-dialogue-body');
-  var ctxSessionEl = document.getElementById('ctx-session-body');
+  var refreshBtn       = $('refresh-btn');
+  var connDot          = $('conn-dot');
+  var taskPills        = $('task-pills');
+  var entitiesCount    = $('entities-count');
+  var contextChevron   = $('context-chevron');
+  var contextPanel     = $('context-panel');
+  var entitiesList     = $('entities-list');
+  var tasksList        = $('tasks-list');
+  var dialogueFeed     = $('voci-dialogue');
+  var previewOverlay   = $('preview-overlay');
+  var previewBackdrop  = $('preview-backdrop');
+  var previewKindBadge = $('preview-kind-badge');
+  var previewConfEl    = $('preview-conf');
+  var previewRawEl     = $('preview-raw');
+  var previewHintedEl  = $('preview-hinted');
+  var previewSendEl    = $('preview-send');
+  var previewAmbig     = $('preview-ambiguous');
+  var confirmBtn       = $('confirm-btn');
+  var rerecordBtn      = $('rerecord-btn');
+  var textInputWrap    = $('text-input-wrap');
+  var recordingWrap    = $('recording-wrap');
+  var processingWrap   = $('processing-wrap');
+  var actionLeftIdle   = $('action-left-idle');
+  var actionLeftRec    = $('action-left-recording');
+  var actionLeftProc   = $('action-left-processing');
+  var sendBtn          = $('send-btn');
+  var cancelRecBtn     = $('cancel-recording-btn');
+  var processingDots   = $('processing-dots');
+  var composeEl        = $('voci-compose');
+  var timerEl          = $('timer-str');
 
-  function isInputFocused() {
-    var el = document.activeElement;
-    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  function d(el, v) { el.style.display = v; }
+
+  function setPhase(p) {
+    phase = p;
+    var rec  = p === 'recording';
+    var proc = p === 'processing';
+    var prev = p === 'preview';
+    var text = !rec && !proc;
+
+    d(textInputWrap,  text ? 'block' : 'none');
+    d(recordingWrap,  rec  ? 'flex'  : 'none');
+    d(processingWrap, proc ? 'flex'  : 'none');
+
+    d(actionLeftIdle, text ? 'flex'  : 'none');
+    d(actionLeftRec,  rec  ? 'block' : 'none');
+    d(actionLeftProc, proc ? 'block' : 'none');
+
+    d(sendBtn,        text ? 'flex'  : 'none');
+    d(cancelRecBtn,   rec  ? 'block' : 'none');
+    d(processingDots, proc ? 'flex'  : 'none');
+
+    d(previewOverlay, prev ? 'flex'  : 'none');
   }
 
-  function startRecording() {
-    if (recorder && recorder.state === 'recording') return;
-    refreshContext();
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function(stream) {
-      mediaStream = stream;
-      chunks = [];
-      recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = function(e) { if (e.data.size > 0) chunks.push(e.data); };
-      recorder.onstop = function() {
-        var blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        sendAudio(blob);
-        stream.getTracks().forEach(function(t) { t.stop(); });
-      };
-      recorder.start();
-      statusEl.textContent = 'Recording… (release Space to stop)';
-    }).catch(function(err) {
-      statusEl.textContent = 'Microphone error: ' + err.message;
-    });
+  function updateSendBtn() {
+    var has = composeEl.value.trim().length > 0;
+    sendBtn.style.background  = has ? '#0e1e32' : '#090c15';
+    sendBtn.style.borderColor = has ? '#1a3050' : '#0f1522';
+    sendBtn.style.color       = has ? '#5b9cf6' : '#252f42';
+    sendBtn.style.cursor      = has ? 'pointer' : 'default';
   }
 
-  function stopRecording() {
-    if (recorder && recorder.state === 'recording') {
-      recorder.stop();
-      statusEl.textContent = 'Processing…';
-    }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function fmtTimer(s) { return Math.floor(s / 60) + ':' + pad(s % 60); }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function sendAudio(blob) {
-    fetch('/api/voice/transcribe', { method: 'POST', body: blob })
-      .then(function(r) { return r.json(); })
-      .then(function(proposal) {
-        rawEl.textContent = proposal.RawTranscript || '';
-        rewrittenEl.value = proposal.Rewritten || '';
-        kindEl.textContent = proposal.Kind || '';
-        confidenceEl.textContent = proposal.Confidence != null ? (proposal.Confidence * 100).toFixed(0) + '%' : '';
-        previewedKind = proposal.Kind || 'direct_prompt';
-        previewEl.style.display = '';
-        statusEl.textContent = 'Review and confirm';
-      })
-      .catch(function(err) {
-        statusEl.textContent = 'Transcribe error: ' + err.message;
-      });
-  }
+  // ── Context ──────────────────────────────────────────────
 
-  function reset() {
-    previewEl.style.display = 'none';
-    rewrittenEl.value = '';
-    rawEl.textContent = '';
-    kindEl.textContent = '';
-    confidenceEl.textContent = '';
-    statusEl.textContent = 'Hold Space to record';
-    previewedKind = 'direct_prompt';
-  }
-
-  // /api/context: fetch hint and render the context panel sections
-  function refreshContext() {
-    fetch('/api/context')
-      .then(function(r) { return r.json(); })
-      .then(function(resp) { renderContext(resp.hint || ''); })
-      .catch(function() {});
-  }
+  var TASK_COLORS = ['#22c55e', '#f97316', '#a855f7', '#5b9cf6', '#06b6d4', '#ec4899'];
 
   function extractSection(hint, heading) {
     var idx = hint.indexOf(heading);
     if (idx < 0) return '';
     var body = hint.slice(idx + heading.length);
     var next = body.search(/\n## /);
-    if (next >= 0) body = body.slice(0, next);
-    return body.trim();
-  }
-
-  function renderDialogue(section) {
-    if (!section) { ctxDialogueEl.innerHTML = ''; return; }
-    var lines = section.split('\n').filter(function(l) { return l.trim() !== ''; });
-    var html = lines.map(function(line) {
-      var role = '', content = line;
-      if (line.startsWith('A: ')) { role = 'A'; content = line.slice(3); }
-      else if (line.startsWith('U: ')) { role = 'U'; content = line.slice(3); }
-      var label = role === 'A' ? '<b>A</b>' : role === 'U' ? '<b>U</b>' : '';
-      var threshold = 120;
-      if (content.length <= threshold || role !== 'A') {
-        return '<div class="dialogue-turn">' + label + ' <span>' + escHtml(content) + '</span></div>';
-      }
-      // Long assistant turn: collapsible
-      var preview = escHtml(content.slice(0, threshold)) + '…';
-      var full = escHtml(content);
-      return '<details class="dialogue-turn"><summary>' + label + ' ' + preview + '</summary>' + full + '</details>';
-    }).join('');
-    ctxDialogueEl.innerHTML = html || '';
-  }
-
-  function escHtml(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return (next >= 0 ? body.slice(0, next) : body).trim();
   }
 
   function renderContext(hint) {
-    ctxKnownEl.textContent = extractSection(hint, '## Known Entities') || '(none)';
-    ctxTasksEl.textContent = extractSection(hint, '## Active Tasks') || '(none)';
-    renderDialogue(extractSection(hint, '## Recent Dialogue'));
-    ctxSessionEl.textContent = extractSection(hint, '## Claude Code Session') || '';
+    var entSection  = extractSection(hint, '## Known Entities');
+    var taskSection = extractSection(hint, '## Active Tasks');
+    var dlgSection  = extractSection(hint, '## Recent Dialogue');
+
+    var eLines = entSection  ? entSection.split('\n').filter(Boolean)  : [];
+    var tLines = taskSection ? taskSection.split('\n').filter(Boolean) : [];
+
+    entitiesCount.textContent = eLines.length + ' entities';
+
+    entitiesList.innerHTML = eLines.slice(0, 6).map(function (line) {
+      var m = line.match(/"([^"]+)"\s*[-→>]+\s*(.+)/);
+      if (m) {
+        return '<div style="display:flex;align-items:baseline;gap:4px">' +
+          '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080;font-style:italic;flex-shrink:0">&quot;' + esc(m[1]) + '&quot;</span>' +
+          '<span style="font-size:8px;color:#283848">→</span>' +
+          '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#5a8aba">' + esc(m[2].trim()) + '</span>' +
+          '</div>';
+      }
+      return '<div style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080">' + esc(line) + '</div>';
+    }).join('');
+
+    taskPills.innerHTML = tLines.slice(0, 4).map(function (line, i) {
+      var m = line.match(/TASK-\d+/i);
+      var id = m ? m[0].toUpperCase() : 'T' + (i + 1);
+      var c  = TASK_COLORS[i % TASK_COLORS.length];
+      return '<div style="display:flex;align-items:center;gap:3px;flex-shrink:0">' +
+        '<div style="width:5px;height:5px;border-radius:50%;background:' + c + ';box-shadow:0 0 4px ' + c + '55"></div>' +
+        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080">' + esc(id) + '</span>' +
+        '</div>';
+    }).join('<span style="color:#283848;font-size:9px">·</span>');
+
+    tasksList.innerHTML = tLines.slice(0, 6).map(function (line, i) {
+      var m = line.match(/TASK-\d+/i);
+      var id   = m ? m[0].toUpperCase() : 'T' + (i + 1);
+      var c    = TASK_COLORS[i % TASK_COLORS.length];
+      var desc = line.replace(/^[-*]\s*/, '').replace(/TASK-\d+\s*:?\s*/i, '').trim();
+      return '<div style="display:flex;align-items:center;gap:5px">' +
+        '<div style="width:4px;height:4px;border-radius:50%;background:' + c + ';flex-shrink:0"></div>' +
+        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#5a8aba;flex-shrink:0">' + esc(id) + '</span>' +
+        '<span style="font-size:9.5px;color:#3a5070;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(desc) + '</span>' +
+        '</div>';
+    }).join('');
+
+    var now  = new Date();
+    var time = pad(now.getHours()) + ':' + pad(now.getMinutes());
+    var ctxMsgs = [];
+    if (dlgSection) {
+      dlgSection.split('\n').filter(Boolean).forEach(function (l) {
+        if      (l.startsWith('A: ')) ctxMsgs.push({ role: 'assistant', text: l.slice(3), time: time });
+        else if (l.startsWith('U: ')) ctxMsgs.push({ role: 'user',      text: l.slice(3), time: time });
+      });
+    }
+    var ctxSet  = new Set(ctxMsgs.map(function (m) { return m.text; }));
+    var pending = localMessages.filter(function (m) { return !ctxSet.has(m.text); });
+    renderDialogue(ctxMsgs.concat(pending));
   }
 
-  confirmBtn.addEventListener('click', function() {
-    var text = rewrittenEl.value.trim();
+  function renderDialogue(msgs) {
+    if (!msgs.length) {
+      dialogueFeed.innerHTML =
+        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px;padding:40px 0;opacity:0.4">' +
+        '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#5a7090" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>' +
+        '<span style="font-size:11px;color:#4a6080;letter-spacing:0.04em">No messages yet</span>' +
+        '</div>';
+      return;
+    }
+    dialogueFeed.innerHTML = msgs.map(function (msg) {
+      if (msg.role === 'user') {
+        return '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:3px 15px;align-items:baseline">' +
+          '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;text-align:right;padding-right:8px">' + esc(msg.time) + '</span>' +
+          '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#5a7aaa;font-weight:500">you</span>' +
+          '<span style="font-size:12.5px;color:#a8bedc;line-height:1.5">' + esc(msg.text) + '</span>' +
+          '</div>';
+      }
+      var evHtml = '';
+      if (msg.events && msg.events.length) {
+        evHtml = '<div style="padding:1px 15px 2px;margin-left:66px">' +
+          '<span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a5880;white-space:pre;display:block;line-height:1.8">' +
+          esc(msg.events.join('\n')) + '</span></div>';
+      }
+      return '<div style="display:flex;flex-direction:column;padding:3px 0;animation:msg-in 0.2s ease">' +
+        '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:0 15px;align-items:baseline">' +
+        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;text-align:right;padding-right:8px">' + esc(msg.time) + '</span>' +
+        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#d4894a;font-weight:500">cc</span>' +
+        '<span style="font-size:12.5px;color:#e4eaf5;line-height:1.5">' + esc(msg.text) + '</span>' +
+        '</div>' + evHtml + '</div>';
+    }).join('');
+    requestAnimationFrame(function () { dialogueFeed.scrollTop = dialogueFeed.scrollHeight; });
+  }
+
+  function setConnected(ok) {
+    var c = ok ? '#22c55e' : '#ef4444';
+    connDot.style.background = c;
+    connDot.style.boxShadow  = '0 0 5px ' + c;
+  }
+
+  function refreshContext() {
+    fetch('/api/context')
+      .then(function (r) { return r.json(); })
+      .then(function (resp) {
+        setConnected(true);
+        renderContext(resp.hint || '');
+        lastRefresh = Date.now();
+      })
+      .catch(function () { setConnected(false); });
+  }
+
+  // ── Recording ────────────────────────────────────────────
+
+  function startRec() {
+    if (isRecording || phase !== 'idle') return;
+    refreshContext();
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function (stream) {
+        mediaStream = stream;
+        chunks = [];
+        recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = function (e) { if (e.data.size > 0) chunks.push(e.data); };
+        recorder.onstop = function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          var blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+          processAudio(blob);
+        };
+        recorder.start();
+        isRecording = true;
+        timerSecs = 0;
+        timerEl.textContent = fmtTimer(0);
+        timerInterval = setInterval(function () {
+          timerSecs++;
+          timerEl.textContent = fmtTimer(timerSecs);
+        }, 1000);
+        setPhase('recording');
+      })
+      .catch(function (err) { console.error('mic:', err); });
+  }
+
+  function stopRec(submit) {
+    if (!isRecording) return;
+    clearInterval(timerInterval);
+    isRecording = false;
+    if (!submit) {
+      if (recorder && recorder.state === 'recording') {
+        recorder.onstop = null;
+        recorder.stop();
+      }
+      setPhase('idle');
+      return;
+    }
+    setPhase('processing');
+    if (recorder && recorder.state === 'recording') recorder.stop();
+  }
+
+  var KIND_COLORS = {
+    direct_prompt:  { bg: '#0c1a30', fg: '#5b9cf6' },
+    query:          { bg: '#061c26', fg: '#06b6d4' },
+    backlog_action: { bg: '#140e24', fg: '#a855f7' },
+    ambiguous:      { bg: '#1c1008', fg: '#f97316' },
+  };
+
+  function processAudio(blob) {
+    fetch('/api/voice/transcribe', { method: 'POST', body: blob })
+      .then(function (r) { return r.json(); })
+      .then(function (p) {
+        var kind  = p.Kind || 'direct_prompt';
+        var conf  = p.Confidence != null ? p.Confidence : 0;
+        var raw   = p.RawTranscript || '';
+        var rew   = p.Rewritten || '';
+        var ambig = kind === 'ambiguous';
+        var kc    = KIND_COLORS[kind] || { bg: '#111', fg: '#888' };
+
+        previewKindBadge.textContent      = kind.replace(/_/g, ' ');
+        previewKindBadge.style.background = kc.bg;
+        previewKindBadge.style.color      = kc.fg;
+        previewConfEl.textContent  = 'conf ' + (conf * 100).toFixed(0) + '%';
+        previewRawEl.textContent    = raw;
+        previewHintedEl.textContent = rew;
+        previewSendEl.textContent   = rew;
+
+        previewAmbig.style.display = ambig ? 'block' : 'none';
+        if (ambig) {
+          confirmBtn.style.cssText = 'flex:1;padding:7px 0;border-radius:7px;font-size:12.5px;font-weight:500;background:#0a0d14;color:#3d5068;border:1px solid #0e1220;font-family:inherit;cursor:not-allowed';
+        } else {
+          confirmBtn.style.cssText = 'flex:1;padding:7px 0;border-radius:7px;font-size:12.5px;font-weight:500;background:#0f2219;color:#22c55e;border:1px solid #1a3d28;font-family:inherit;cursor:pointer';
+        }
+
+        previewData    = { kind: kind, conf: conf, raw: raw, rewritten: rew, ambig: ambig };
+        composeEl.value = ambig ? '' : rew;
+        updateSendBtn();
+        setPhase('preview');
+      })
+      .catch(function (e) { console.error('transcribe:', e); setPhase('idle'); });
+  }
+
+  // ── Send ─────────────────────────────────────────────────
+
+  function sendText(text, kind) {
     if (!text) return;
+    var now  = new Date();
+    var time = pad(now.getHours()) + ':' + pad(now.getMinutes());
     fetch('/api/voice/emit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text, "kind": previewedKind })
-    }).then(function(r) {
-      if (r.status === 204) {
-        reset();
-      } else {
-        statusEl.textContent = 'Emit failed: ' + r.status;
+      body: JSON.stringify({ text: text, kind: kind || 'direct_prompt' }),
+    }).then(function (r) {
+      if (r.ok || r.status === 204) {
+        localMessages.push({ role: 'user',      text: text,    time: time, events: [] });
+        localMessages.push({ role: 'assistant', text: 'On it.', time: time, events: [] });
+        if (localMessages.length > 40) localMessages.splice(0, localMessages.length - 40);
+        previewData     = null;
+        composeEl.value = '';
+        updateSendBtn();
+        setPhase('idle');
+        setTimeout(refreshContext, 600);
       }
-    }).catch(function(err) {
-      statusEl.textContent = 'Emit error: ' + err.message;
-    });
+    }).catch(function (e) { console.error('emit:', e); setPhase('idle'); });
+  }
+
+  // ── Event wiring ─────────────────────────────────────────
+
+  refreshBtn.addEventListener('click', refreshContext);
+
+  $('entities-toggle').addEventListener('click', function () {
+    contextExpanded = !contextExpanded;
+    contextPanel.style.display = contextExpanded ? 'block' : 'none';
+    contextChevron.textContent = contextExpanded ? '▾' : '▸';
   });
 
-  cancelBtn.addEventListener('click', reset);
-
-  document.addEventListener('keydown', function(e) {
-    if (e.code === 'Space' && !isInputFocused() && !e.repeat) {
+  composeEl.addEventListener('input', updateSendBtn);
+  composeEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      startRecording();
+      var t = composeEl.value.trim();
+      if (t) sendText(t, 'direct_prompt');
     }
   });
-  document.addEventListener('keyup', function(e) {
-    if (e.code === 'Space' && !isInputFocused()) {
-      e.preventDefault();
-      stopRecording();
+  sendBtn.addEventListener('click', function () {
+    var t = composeEl.value.trim();
+    if (t) sendText(t, 'direct_prompt');
+  });
+
+  confirmBtn.addEventListener('click', function () {
+    if (previewData && !previewData.ambig) sendText(previewData.rewritten, previewData.kind);
+  });
+  rerecordBtn.addEventListener('click', function () {
+    previewData     = null;
+    composeEl.value = '';
+    setPhase('idle');
+    startRec();
+  });
+  previewBackdrop.addEventListener('click', function () {
+    previewData     = null;
+    composeEl.value = '';
+    setPhase('idle');
+  });
+
+  $('mic-btn').addEventListener('mousedown', startRec);
+  $('mic-btn').addEventListener('touchstart', function (e) { e.preventDefault(); startRec(); });
+  cancelRecBtn.addEventListener('click', function () { stopRec(false); });
+
+  window.addEventListener('mouseup',  function ()  { if (isRecording) stopRec(true); });
+  window.addEventListener('touchend', function (e) { if (isRecording) { e.preventDefault(); stopRec(true); } });
+
+  var spaceHeld = false;
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' && !e.repeat && phase === 'idle' && e.target !== composeEl) {
+      e.preventDefault(); spaceHeld = true; startRec();
+    }
+  });
+  window.addEventListener('keyup', function (e) {
+    if (e.code === 'Space' && spaceHeld) {
+      e.preventDefault(); spaceHeld = false; stopRec(true);
     }
   });
 
-  // Poll context every 5 seconds; also refresh immediately on load
+  // ── Init ─────────────────────────────────────────────────
+
+  setPhase('idle');
+  updateSendBtn();
   refreshContext();
-  ctxTimer = setInterval(refreshContext, 5000);
+  setInterval(refreshContext, 5000);
+  setInterval(function () {
+    var s = Math.floor((Date.now() - lastRefresh) / 1000);
+    refreshBtn.textContent = s < 2 ? 'just now' : s < 60 ? s + 's ago' : Math.floor(s / 60) + 'm ago';
+  }, 1000);
+
 })();

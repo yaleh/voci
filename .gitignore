@@ -2,4 +2,4 @@
 testdata/
 .voci/
 context_cache.json
-docs/**/*.pyc
+/docs/**.pyc

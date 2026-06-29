@@ -167,8 +167,21 @@ func run(
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
-		chatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
-			return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
+		var chatFn pipeline.ChatFn
+		if cfg.ASRProvider == "gemini" && cfg.ASRAPIKey != "" {
+			chatFn = func(ctx context.Context, messages []ollama.Message) (string, error) {
+				roles := make([]string, len(messages))
+				contents := make([]string, len(messages))
+				for i, m := range messages {
+					roles[i] = m.Role
+					contents[i] = m.Content
+				}
+				return asr.GeminiChat(ctx, cfg.ASRAPIKey, cfg.ASRModel, roles, contents)
+			}
+		} else {
+			chatFn = func(ctx context.Context, messages []ollama.Message) (string, error) {
+				return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
+			}
 		}
 		if transcribeFn == nil {
 			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {

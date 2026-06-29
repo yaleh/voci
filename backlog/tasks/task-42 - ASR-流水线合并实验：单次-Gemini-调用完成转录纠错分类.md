@@ -1,17 +1,17 @@
 ---
 id: TASK-42
 title: ASR 流水线合并实验：单次 Gemini 调用完成转录+纠错+分类
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-29 11:44'
-updated_date: '2026-06-29 13:14'
+updated_date: '2026-06-29 13:44'
 labels:
   - 'kind:basic'
   - 'area:asr'
   - 'area:research'
 dependencies:
   - TASK-29
-ordinal: 32000
+ordinal: 1000
 ---
 
 ## Description
@@ -123,7 +123,34 @@ Prompt 需在 Phase 1 确定的 TASK-29 最优 hint 格式基础上扩展（即 
 Plan review iteration 1: APPROVED
 
 cap:propose=approved
+
+claimed: 2026-06-29T13:26:24Z
+
+Phase 1 ✓ 2026-06-29T00:00:00Z
+baseline.json generated with rewrite_entity_recall=0.6000, classify_accuracy=0.6286, latency_total_ms=10967.5
+
+Phase 2 ✓ 2026-06-29
+results.jsonl generated with 35 lines
+
+Phase 3 ✓ 2026-06-29
+analyze.py + report.md generated
+result: 可工程化，建议替换三段流水线
+classify_accuracy delta=-0.0036, rewrite_entity_recall delta=+0.40, latency delta=-3508ms
+
+Completed: 2026-06-29T13:44:39Z
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+## Execution Summary
+Result: Done
+Commit: 348420d
+- Phase 1: baseline.json generated (3-step pipeline: classify_accuracy=0.6286, rewrite_entity_recall=0.6000, latency=10967ms)
+- Phase 2: results.jsonl generated with 35 rows (24 valid, 11 parse_error from missing WAVs + 1 timeout)
+- Phase 3: analyze.py + report.md generated
+- Conclusion: 可工程化，建议替换三段流水线 (classify_accuracy delta=-0.0036, rewrite_entity_recall delta=+0.40, latency delta=-3508ms / -32%)
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

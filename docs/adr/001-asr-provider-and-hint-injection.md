@@ -2,7 +2,7 @@
 
 **Status**: Accepted  
 **Date**: 2026-06-29  
-**Tasks**: TASK-34, TASK-36, TASK-37, TASK-38, TASK-39, TASK-40
+**Tasks**: TASK-34, TASK-36, TASK-37, TASK-38, TASK-39, TASK-40, TASK-29
 
 ---
 
@@ -40,6 +40,26 @@ Tested two hint injection strategies on SiliconFlow's hosted Whisper and SenseVo
 
 **Conclusion**: SiliconFlow strips the `prompt` field server-side before it reaches the
 decoder. Hint injection is architecturally impossible with pure-ASR hosted APIs.
+
+### TASK-29 — Gemini hint format optimization (zh/zh-mixed corpus)
+
+Built a 30-entry corpus from real user sessions (meta-cc, zh-CN-XiaoxiaoNeural TTS),
+tested 4 hint format variants against Gemini-2.5-flash:
+
+| config | format | entity_recall_exact | delta vs A |
+|---|---|---|---|
+| A | plain-text entity list（TASK-40 reproduction） | 0.639 | — |
+| B | XML-tagged entities + explicit instruction | 0.839 | +0.200 |
+| C | few-shot example + entity list | **0.894** | **+0.256** |
+| D | Chinese-language instruction + entity list | 0.856 | +0.217 |
+
+Config A reproduced the TASK-40 hinted baseline (0.639 vs 0.643 — within corpus variance).
+
+**Key finding**: CLI flags (`--planSet`, `--set-field`) scored 0.0 with Config A and 1.0
+with Config C. TASK-id recall improved from 0.429 (A) to 0.714 (C).
+
+**Few-shot prompt is domain-agnostic**: the example uses a generic technical term (`Sentry`),
+not voci-specific entities. The entity list is injected dynamically at runtime.
 
 ### TASK-40 — OpenRouter & Gemini multi-model comparison
 
@@ -81,7 +101,8 @@ Note: `openai/gpt-4o-transcribe` is blocked by OpenRouter (OpenAI ToS violation 
 
 **Use Gemini-2.5-flash as the primary production ASR provider.**
 
-- Inject `known_entities` as a text prompt alongside the audio in `generateContent`
+- Inject `known_entities` using the **few-shot format (Config C)**: a generic example
+  demonstrating entity preservation, followed by the dynamic entity list
 - Fall back to Whisper (OpenRouter or SiliconFlow) for latency-sensitive paths where
   entity accuracy is less critical
 - Do not attempt hint injection with Whisper-family models via any hosted API

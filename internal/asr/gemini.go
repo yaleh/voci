@@ -33,7 +33,19 @@ type geminiContent struct {
 }
 
 type geminiRequest struct {
-	Contents []geminiContent `json:"contents"`
+	Contents          []geminiContent `json:"contents"`
+	SystemInstruction *geminiContent  `json:"systemInstruction,omitempty"`
+}
+
+// geminiChatContent is the per-turn content used for chat (has a role).
+type geminiChatContent struct {
+	Role  string       `json:"role"`
+	Parts []geminiPart `json:"parts"`
+}
+
+type geminiChatRequest struct {
+	Contents          []geminiChatContent `json:"contents"`
+	SystemInstruction *geminiContent      `json:"systemInstruction,omitempty"`
 }
 
 // Response structs
@@ -134,4 +146,65 @@ func TranscribeGemini(ctx context.Context, key, audioPath, apiURL, language, mod
 	}
 
 	return result.Candidates[0].Content.Parts[0].Text
+}
+
+// GeminiChat sends a multi-turn chat to the Gemini generateContent API.
+// roles and contents must be the same length. Accepted roles: "user", "assistant", "system".
+// "assistant" is mapped to Gemini's "model" role; "system" turns become systemInstruction.
+// model defaults to DefaultGeminiModel if empty.
+func GeminiChat(ctx context.Context, key, model string, roles, contents []string) (string, error) {
+	if model == "" {
+		model = DefaultGeminiModel
+	}
+	apiURL := strings.ReplaceAll(DefaultGeminiAPIURLTemplate, "{model}", model)
+
+	var sysInstruction *geminiContent
+	var turns []geminiChatContent
+	for i, role := range roles {
+		text := ""
+		if i < len(contents) {
+			text = contents[i]
+		}
+		switch role {
+		case "system":
+			sysInstruction = &geminiContent{Parts: []geminiPart{{Text: text}}}
+		case "assistant":
+			turns = append(turns, geminiChatContent{Role: "model", Parts: []geminiPart{{Text: text}}})
+		default:
+			turns = append(turns, geminiChatContent{Role: "user", Parts: []geminiPart{{Text: text}}})
+		}
+	}
+
+	payload := geminiChatRequest{Contents: turns, SystemInstruction: sysInstruction}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("gemini chat: marshal: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("gemini chat: request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", key)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("gemini chat: http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("gemini chat: API error %d: %s", resp.StatusCode, bodyBytes)
+	}
+
+	var result geminiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("gemini chat: decode: %w", err)
+	}
+	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+		return "", fmt.Errorf("gemini chat: empty response")
+	}
+	return result.Candidates[0].Content.Parts[0].Text, nil
 }

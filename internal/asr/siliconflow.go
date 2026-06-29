@@ -91,13 +91,14 @@ func buildJSONRequest(ctx context.Context, key, audioPath, apiURL, model string)
 // provider selects the request format: "openrouter" uses JSON+base64; others use multipart/form-data.
 // apiURL defaults to the provider's default endpoint if empty.
 // model overrides the provider default when non-empty; for siliconflow, language selects the default model.
+// entities, when non-empty and provider is "gemini", enables Config C few-shot prompt format.
 // Returns empty string on error (errors are logged).
-func Transcribe(ctx context.Context, key, audioPath, apiURL, language, provider, model string) string {
+func Transcribe(ctx context.Context, key, audioPath, apiURL, language, provider, model string, entities []string) string {
 	var req *http.Request
 	var err error
 
 	if provider == "gemini" {
-		return TranscribeGemini(ctx, key, audioPath, apiURL, language, model)
+		return TranscribeGemini(ctx, key, audioPath, apiURL, language, model, entities)
 	} else if provider == "openrouter" {
 		if apiURL == "" {
 			apiURL = DefaultOpenRouterAPIURL

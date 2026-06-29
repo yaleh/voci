@@ -31,7 +31,7 @@ func setTestEnv(t *testing.T) {
 	t.Setenv("OLLAMA_HOST", "http://localhost:11434")
 }
 
-var fakeTranscribe TranscribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
+var fakeTranscribe TranscribeFn = func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
 	return "task one fix login bug"
 }
 
@@ -488,7 +488,7 @@ func TestRun_SeparateMode_UsesAdapterHint(t *testing.T) {
 	err := run(
 		[]string{"--file", f.Name(), "--no-gate"},
 		io.Discard, strings.NewReader(""),
-		func(ctx context.Context, key, path, url, language string) string { return "raw" },
+		func(ctx context.Context, key, path, url, language string, entities []string) string { return "raw" },
 		captureHintedFn,
 		func(ctx context.Context, h, hint string, chat pipeline.ChatFn) (string, error) { return h, nil },
 		func(ctx context.Context, r, fc string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
@@ -513,7 +513,7 @@ func TestRun_BuildHintFnNil_DoesNotPanic(t *testing.T) {
 	err := run(
 		[]string{"--file", f.Name(), "--no-gate"},
 		io.Discard, strings.NewReader(""),
-		func(ctx context.Context, key, path, url, language string) string { return "raw" },
+		func(ctx context.Context, key, path, url, language string, entities []string) string { return "raw" },
 		func(ctx context.Context, raw, hint string, chat pipeline.ChatFn) (string, error) { return raw, nil },
 		func(ctx context.Context, h, hint string, chat pipeline.ChatFn) (string, error) { return h, nil },
 		func(ctx context.Context, r, fc string, chat pipeline.ChatFn) (intent.ActionProposal, error) {

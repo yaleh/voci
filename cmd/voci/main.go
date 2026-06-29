@@ -83,7 +83,7 @@ func dispatch(
 }
 
 // Dependency types for testing
-type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string) string
+type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string
 type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error)
 type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
 type GateFn func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult
@@ -184,8 +184,8 @@ func run(
 			}
 		}
 		if transcribeFn == nil {
-			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
-				return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+				return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel, entities)
 			}
 		}
 		if hintedFn == nil {
@@ -261,8 +261,8 @@ func run(
 			return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
 		}
 		if transcribeFn == nil {
-			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
-				return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+				return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel, entities)
 			}
 		}
 		if hintedFn == nil {
@@ -323,8 +323,8 @@ func run(
 				return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
 			}
 			if transcribeFn == nil {
-				transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
-					return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+				transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+					return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel, entities)
 				}
 			}
 			if hintedFn == nil {
@@ -384,8 +384,8 @@ func run(
 
 	// Use injected or default functions
 	if transcribeFn == nil {
-		transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
-			return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+		transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+			return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel, entities)
 		}
 	}
 	if hintedFn == nil {
@@ -418,7 +418,8 @@ func run(
 	}
 
 	// Stage 2: ASR transcription
-	raw := transcribeFn(ctx, cfg.ASRAPIKey, *fileFlag, "", cfg.Language)
+	entities := asr.ExtractEntities(hint)
+	raw := transcribeFn(ctx, cfg.ASRAPIKey, *fileFlag, "", cfg.Language, entities)
 
 	// Stage 3: Hinted correction
 	hinted, err := hintedFn(ctx, raw, hint, chatFn)

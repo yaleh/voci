@@ -7,6 +7,9 @@
   var timerSecs = 0, timerInterval = null;
   var contextExpanded = false;
   var lastRefresh = Date.now();
+  var lastHint = null;
+  var lastDialogueHtml = '';
+  var lastPillsHtml = '';
   var localMessages = [];
 
   function $(id) { return document.getElementById(id); }
@@ -103,7 +106,7 @@
       return '<div style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080">' + esc(line) + '</div>';
     }).join('');
 
-    taskPills.innerHTML = tLines.slice(0, 4).map(function (line, i) {
+    var newPillsHtml = tLines.slice(0, 4).map(function (line, i) {
       var m = line.match(/TASK-\d+/i);
       var id = m ? m[0].toUpperCase() : 'T' + (i + 1);
       var c  = TASK_COLORS[i % TASK_COLORS.length];
@@ -112,6 +115,7 @@
         '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080">' + esc(id) + '</span>' +
         '</div>';
     }).join('<span style="color:#283848;font-size:9px">·</span>');
+    if (newPillsHtml !== lastPillsHtml) { lastPillsHtml = newPillsHtml; taskPills.innerHTML = newPillsHtml; }
 
     tasksList.innerHTML = tLines.slice(0, 6).map(function (line, i) {
       var m = line.match(/TASK-\d+/i);
@@ -140,35 +144,38 @@
   }
 
   function renderDialogue(msgs) {
+    var html;
     if (!msgs.length) {
-      dialogueFeed.innerHTML =
-        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px;padding:40px 0;opacity:0.4">' +
+      html = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:6px;padding:40px 0;opacity:0.4">' +
         '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#5a7090" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>' +
         '<span style="font-size:11px;color:#4a6080;letter-spacing:0.04em">No messages yet</span>' +
         '</div>';
-      return;
-    }
-    dialogueFeed.innerHTML = msgs.map(function (msg) {
-      if (msg.role === 'user') {
-        return '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:3px 15px;align-items:baseline">' +
+    } else {
+      html = msgs.map(function (msg) {
+        if (msg.role === 'user') {
+          return '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:3px 15px;align-items:baseline">' +
+            '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;text-align:right;padding-right:8px">' + esc(msg.time) + '</span>' +
+            '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#5a7aaa;font-weight:500">you</span>' +
+            '<span style="font-size:12.5px;color:#a8bedc;line-height:1.5">' + esc(msg.text) + '</span>' +
+            '</div>';
+        }
+        var evHtml = '';
+        if (msg.events && msg.events.length) {
+          evHtml = '<div style="padding:1px 15px 2px;margin-left:66px">' +
+            '<span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a5880;white-space:pre;display:block;line-height:1.8">' +
+            esc(msg.events.join('\n')) + '</span></div>';
+        }
+        return '<div style="display:flex;flex-direction:column;padding:3px 0;animation:msg-in 0.2s ease">' +
+          '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:0 15px;align-items:baseline">' +
           '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;text-align:right;padding-right:8px">' + esc(msg.time) + '</span>' +
-          '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#5a7aaa;font-weight:500">you</span>' +
-          '<span style="font-size:12.5px;color:#a8bedc;line-height:1.5">' + esc(msg.text) + '</span>' +
-          '</div>';
-      }
-      var evHtml = '';
-      if (msg.events && msg.events.length) {
-        evHtml = '<div style="padding:1px 15px 2px;margin-left:66px">' +
-          '<span style="font-family:JetBrains Mono,monospace;font-size:10px;color:#3a5880;white-space:pre;display:block;line-height:1.8">' +
-          esc(msg.events.join('\n')) + '</span></div>';
-      }
-      return '<div style="display:flex;flex-direction:column;padding:3px 0;animation:msg-in 0.2s ease">' +
-        '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:0 15px;align-items:baseline">' +
-        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;text-align:right;padding-right:8px">' + esc(msg.time) + '</span>' +
-        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#d4894a;font-weight:500">cc</span>' +
-        '<span style="font-size:12.5px;color:#e4eaf5;line-height:1.5">' + esc(msg.text) + '</span>' +
-        '</div>' + evHtml + '</div>';
-    }).join('');
+          '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#d4894a;font-weight:500">cc</span>' +
+          '<span style="font-size:12.5px;color:#e4eaf5;line-height:1.5">' + esc(msg.text) + '</span>' +
+          '</div>' + evHtml + '</div>';
+      }).join('');
+    }
+    if (html === lastDialogueHtml) return;
+    lastDialogueHtml = html;
+    dialogueFeed.innerHTML = html;
     requestAnimationFrame(function () { dialogueFeed.scrollTop = dialogueFeed.scrollHeight; });
   }
 
@@ -183,7 +190,11 @@
       .then(function (r) { return r.json(); })
       .then(function (resp) {
         setConnected(true);
-        renderContext(resp.hint || '');
+        var hint = resp.hint || '';
+        if (hint !== lastHint) {
+          lastHint = hint;
+          renderContext(hint);
+        }
         lastRefresh = Date.now();
       })
       .catch(function () { setConnected(false); });

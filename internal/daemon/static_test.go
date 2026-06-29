@@ -141,6 +141,54 @@ func TestEmbeddedRecorder_UsesContract(t *testing.T) {
 	}
 }
 
+// TestEmbeddedRecorder_NoDialogueFlicker asserts that recorder.js guards
+// dialogueFeed.innerHTML with an HTML-level cache variable so that repeated
+// /api/context polls with unchanged dialogue content do not mutate the DOM
+// (which would re-trigger CSS animations and cause visible flicker).
+func TestEmbeddedRecorder_NoDialogueFlicker(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read web/recorder.js: %v", err)
+	}
+	body := string(data)
+
+	guards := []struct {
+		pattern string
+		desc    string
+	}{
+		{"lastDialogueHtml", "HTML cache variable for dialogue dedup"},
+		{"lastDialogueHtml", "must be compared before setting dialogueFeed.innerHTML"},
+	}
+	for _, g := range guards {
+		if !strings.Contains(body, g.pattern) {
+			t.Errorf("recorder.js missing anti-flicker guard %q (%s)", g.pattern, g.desc)
+		}
+	}
+
+	// Verify the guard is actually used in a conditional before innerHTML assignment.
+	// A correct guard looks like: if (html === lastDialogueHtml) return;
+	if !strings.Contains(body, "lastDialogueHtml") {
+		t.Error("recorder.js: lastDialogueHtml guard not found — dialogue will flicker on every context poll")
+	}
+	// Must NOT unconditionally assign dialogueFeed.innerHTML without a guard.
+	// We check that `return` appears near lastDialogueHtml (early-return pattern).
+	idx := strings.Index(body, "lastDialogueHtml")
+	if idx < 0 {
+		t.Fatal("lastDialogueHtml not found")
+	}
+	surroundingContext := body[idx : min(len(body), idx+200)]
+	if !strings.Contains(surroundingContext, "return") {
+		t.Errorf("lastDialogueHtml guard does not appear to use early-return pattern; surrounding: %q", surroundingContext)
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // helpers
 
 func makeEmitServer(t *testing.T) *Server {

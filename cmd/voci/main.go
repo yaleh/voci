@@ -246,15 +246,18 @@ func run(
 			if convErr != nil {
 				return fmt.Errorf("parse port %q: %w", portStr, convErr)
 			}
-			tunnelCtx := context.Background()
+			tunnelCtx, tunnelCancel := context.WithCancel(context.Background())
+			defer tunnelCancel()
 			tunnelCmd, publicURL, tunnelErr := daemon.StartTunnel(tunnelCtx, port, os.Stderr)
 			if tunnelErr != nil {
 				return fmt.Errorf("--share: %w", tunnelErr)
 			}
 			defer tunnelCmd.Process.Kill()
+			daemon.WatchTunnel(tunnelCmd, tunnelCancel)
 			fmt.Fprintf(os.Stderr, "voci share URL: %s\n", publicURL)
 			fmt.Fprintf(os.Stderr, "Bearer token:   %s\n", token)
 			fmt.Fprintf(os.Stderr, "Note: audio and transcriptions route through Cloudflare infrastructure.\n")
+			return srv.StartWithContext(tunnelCtx, addr)
 		}
 		return srv.Start(addr)
 	}

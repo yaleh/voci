@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -59,6 +60,9 @@ type Server struct {
 	// BearerToken, when non-empty, requires all /api/* requests to carry
 	// "Authorization: Bearer <token>". Static file routes are unaffected.
 	BearerToken string
+	// OnListening, if non-nil, is called once the TCP listener is ready.
+	// Used in tests to synchronise startup.
+	OnListening func()
 }
 
 // Handler returns an http.Handler routing the voice endpoints and static UI.
@@ -75,6 +79,29 @@ func (s *Server) Handler() http.Handler {
 // Start starts the HTTP server on the given address.
 func (s *Server) Start(addr string) error {
 	return http.ListenAndServe(addr, s.Handler())
+}
+
+// StartWithContext starts the HTTP server and shuts it down gracefully when ctx
+// is cancelled. This allows WatchTunnel to propagate a cloudflared exit to the
+// server: cancel the context → server stops → voci serve exits → monitor re-arms.
+func (s *Server) StartWithContext(ctx context.Context, addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	if s.OnListening != nil {
+		s.OnListening()
+	}
+	hs := &http.Server{Handler: s.Handler()}
+	go func() {
+		<-ctx.Done()
+		hs.Shutdown(context.Background())
+	}()
+	err = hs.Serve(ln)
+	if ctx.Err() != nil {
+		return nil // clean shutdown on context cancel
+	}
+	return err
 }
 
 // handleTranscribe runs the full ASR pipeline and returns ActionProposal JSON.

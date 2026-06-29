@@ -211,6 +211,31 @@ func TestEmbeddedIndex_HasTokenInputUI(t *testing.T) {
 	}
 }
 
+// TestEmbeddedIndex_TokenInputOptimizedFor6Digits verifies the token input is
+// configured for 6-digit numeric entry: numeric keyboard on mobile, maxlength
+// guard, OTP autocomplete, and a numeric placeholder.
+func TestEmbeddedIndex_TokenInputOptimizedFor6Digits(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	body := string(data)
+	checks := []struct {
+		attr string
+		desc string
+	}{
+		{`inputmode="numeric"`, "numeric keyboard on mobile"},
+		{`maxlength="6"`, "prevents entry beyond 6 digits"},
+		{`autocomplete="one-time-code"`, "OTP autofill on mobile"},
+		{`placeholder="000000"`, "numeric placeholder hints 6-digit format"},
+	}
+	for _, c := range checks {
+		if !strings.Contains(body, c.attr) {
+			t.Errorf("voci-token input missing %s (%s)", c.attr, c.desc)
+		}
+	}
+}
+
 // TestEmbeddedRecorder_SendTextRendersLocalMessages verifies that sendText()
 // re-renders the dialogue immediately after updating localMessages, without
 // waiting for hint changes from /api/context. The fix is that sendText() must

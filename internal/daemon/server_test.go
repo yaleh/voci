@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yaleh/voci/internal/intent"
 	"github.com/yaleh/voci/internal/pipeline"
@@ -639,6 +640,37 @@ func TestHandleContext_HintFnError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestStartWithContext_StopsWhenContextCancelled verifies that StartWithContext
+// returns when its context is cancelled, so WatchTunnel can propagate a
+// cloudflared exit to the HTTP server.
+func TestStartWithContext_StopsWhenContextCancelled(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := make(chan struct{})
+	errCh := make(chan error, 1)
+	srv.OnListening = func() { close(started) }
+
+	go func() {
+		errCh <- srv.StartWithContext(ctx, "127.0.0.1:0")
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server did not start within 3s")
+	}
+
+	cancel()
+	select {
+	case <-errCh:
+		// good: server returned after cancel
+	case <-time.After(3 * time.Second):
+		t.Fatal("StartWithContext did not return within 3s after context cancel")
 	}
 }
 

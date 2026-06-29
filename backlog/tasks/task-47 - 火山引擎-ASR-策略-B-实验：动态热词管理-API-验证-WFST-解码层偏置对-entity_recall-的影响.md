@@ -4,7 +4,7 @@ title: 火山引擎 ASR 策略 B 实验：动态热词管理 API 验证 WFST 解
 status: 'Basic: Backlog'
 assignee: []
 created_date: '2026-06-29 15:27'
-updated_date: '2026-06-29 15:35'
+updated_date: '2026-06-29 16:47'
 labels:
   - 'kind:basic'
   - experiment
@@ -445,24 +445,49 @@ EOF
 
 <!-- SECTION:NOTES:BEGIN -->
 cap:propose=approved
+
+凭证存放约定：将 volcengine_app_id 和 volcengine_access_token 写入 ~/.config/voci/config.yaml（与现有 asr_api_key 同文件，不进 git）。adapter 优先读 env var，fallback 读 config.yaml，两者均空时抛 RuntimeError。Phase 1 已完成：adapters/volcengine.py 已创建，runner.py 已集成。下一步：填写 config.yaml 凭证后运行 smoke test。
+
+凭证文件已创建：~/.config/voci/config-volcengine.yaml（不进 git）。填写 volcengine_app_id 和 volcengine_access_token 后，执行实验时通过 --config 指定该文件，无需切换 config.yaml 符号链接。
+
+Smoke test 命令：
+  python3 docs/research/asr-bench/adapters/volcengine.py --smoke-test --config ~/.config/voci/config-volcengine.yaml
+
+Bench 命令：
+  python3 docs/research/asr-bench/runner.py --models volcengine --config ~/.config/voci/config-volcengine.yaml --cases testdata/testcases.json --out docs/research/asr-bench/results/
+
+--config 的值通过 VOCI_CONFIG 环境变量传给 adapter，优先级高于 config.yaml 符号链接。
+
+API 确认（2026-06-29）：
+- 正确 API 为大模型录音文件识别标准版，异步两阶段：POST /api/v3/auc/bigmodel/submit → poll /api/v3/auc/bigmodel/query
+- Auth：Header X-Api-App-Key (appid) + X-Api-Access-Key (token)，非 Bearer
+- 音频必须为可公网访问的 URL（无 base64 选项）→ 需要 volcengine_audio_base_url
+- 热词直传：request.corpus.context = json.dumps({"hotwords":[{"word":"xxx"}]})，最多 5000 词，无需预注册 ✅
+- 原策略 B（动态热词管理 API）的 /api/v1/hotword 端点不存在；本方案直接内联注入，效果等同且更简洁
+
+运行前准备（需要两个终端）：
+  cd testdata && python3 -m http.server 8888
+  cloudflared tunnel --url http://localhost:8888
+将输出的 HTTPS URL 填入 config-volcengine.yaml 的 volcengine_audio_base_url 字段
+
+Smoke test（需 WAV）：
+  python3 docs/research/asr-bench/adapters/volcengine.py --smoke-test --config ~/.config/voci/config-volcengine.yaml --wav testdata/tc-001.wav
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
 - [ ] #1 grep -q 'class VolcengineASRAdapter' docs/research/asr-bench/adapters/volcengine.py
 - [ ] #2 grep -q 'supports_hints = True' docs/research/asr-bench/adapters/volcengine.py
-- [ ] #3 grep -q '_create_vocab' docs/research/asr-bench/adapters/volcengine.py
-- [ ] #4 grep -q '__main__' docs/research/asr-bench/adapters/volcengine.py
-- [ ] #5 grep -q 'volcengine' docs/research/asr-bench/runner.py
-- [ ] #6 grep -q 'VolcengineASRAdapter' docs/research/asr-bench/runner.py
-- [ ] #7 test -n "$VOLCENGINE_APP_ID"
-- [ ] #8 test -n "$VOLCENGINE_ACCESS_TOKEN"
-- [ ] #9 python3 docs/research/asr-bench/adapters/volcengine.py --smoke-test
-- [ ] #10 ls docs/research/asr-bench/results/run-*volcengine*.jsonl 2>/dev/null | head -1 | grep -q .
-- [ ] #11 grep -q '"model": "volcengine"' docs/research/asr-bench/results/run-*volcengine*.jsonl
-- [ ] #12 grep -q 'entity_recall' docs/research/asr-bench/results/volcengine-analysis.md
-- [ ] #13 grep -q 'hint_mode' docs/research/asr-bench/results/volcengine-analysis.md
-- [ ] #14 grep -q 'BREAKTHROUGH\|MARGINAL\|NO_EFFECT' docs/research/asr-bench/results/volcengine-analysis.md
-- [ ] #15 grep -q '"hint_mode": "on"' docs/research/asr-bench/results/run-*volcengine*.jsonl
-- [ ] #16 python3 -c "import json,glob; rows=[json.loads(l) for f in glob.glob('docs/research/asr-bench/results/run-*volcengine*.jsonl') for l in open(f)]; on=[r for r in rows if r.get('model')=='volcengine' and r.get('hint_mode')=='on' and 'entity_recall' in r]; off=[r for r in rows if r.get('model')=='volcengine' and r.get('hint_mode')=='off' and 'entity_recall' in r]; print(f'on={len(on)} off={len(off)}'); assert len(on)>0 and len(off)>0"
+- [ ] #3 grep -q '__main__' docs/research/asr-bench/adapters/volcengine.py
+- [ ] #4 grep -q 'volcengine' docs/research/asr-bench/runner.py
+- [ ] #5 grep -q 'VolcengineASRAdapter' docs/research/asr-bench/runner.py
+- [ ] #6 test -n "$VOLCENGINE_APP_ID"
+- [ ] #7 test -n "$VOLCENGINE_ACCESS_TOKEN"
+- [ ] #8 ls docs/research/asr-bench/results/run-*volcengine*.jsonl 2>/dev/null | head -1 | grep -q .
+- [ ] #9 grep -q '"model": "volcengine"' docs/research/asr-bench/results/run-*volcengine*.jsonl
+- [ ] #10 grep -q 'entity_recall' docs/research/asr-bench/results/volcengine-analysis.md
+- [ ] #11 grep -q 'hint_mode' docs/research/asr-bench/results/volcengine-analysis.md
+- [ ] #12 grep -q 'BREAKTHROUGH\|MARGINAL\|NO_EFFECT' docs/research/asr-bench/results/volcengine-analysis.md
+- [ ] #13 grep -q '"hint_mode": "on"' docs/research/asr-bench/results/run-*volcengine*.jsonl
+- [ ] #14 python3 -c "import json,glob; rows=[json.loads(l) for f in glob.glob('docs/research/asr-bench/results/run-*volcengine*.jsonl') for l in open(f)]; on=[r for r in rows if r.get('model')=='volcengine' and r.get('hint_mode')=='on' and 'entity_recall' in r]; off=[r for r in rows if r.get('model')=='volcengine' and r.get('hint_mode')=='off' and 'entity_recall' in r]; print(f'on={len(on)} off={len(off)}'); assert len(on)>0 and len(off)>0"
 <!-- DOD:END -->

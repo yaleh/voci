@@ -10,7 +10,18 @@ import (
 	"time"
 )
 
+
 var trycloudflareRe = regexp.MustCompile(`https://[^\s]+\.trycloudflare\.com`)
+
+// WatchTunnel calls cancel when cmd exits, allowing callers to react to an
+// unexpected cloudflared exit without polling. It starts a background goroutine
+// and returns immediately.
+func WatchTunnel(cmd *exec.Cmd, cancel context.CancelFunc) {
+	go func() {
+		cmd.Wait() //nolint:errcheck — we only care that it exited
+		cancel()
+	}()
+}
 
 // ParseTunnelURL extracts the first trycloudflare.com HTTPS URL from a line of text.
 func ParseTunnelURL(line string) string {

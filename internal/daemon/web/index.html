@@ -122,7 +122,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 
 <div id="voci-token-setup" style="display:none; position:fixed; inset:0; background:#07090d; z-index:100; flex-direction:column; align-items:center; justify-content:center; gap:12px;">
   <p style="color:#fff; font-size:14px;">Enter your voci Bearer token:</p>
-  <input id="voci-token" type="text" placeholder="paste token here" style="padding:8px 12px; border-radius:6px; border:none; width:320px; font-size:14px;">
+  <input id="voci-token" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000" style="padding:8px 12px; border-radius:6px; border:none; width:320px; font-size:14px; letter-spacing:0.15em; text-align:center;">
   <button onclick="saveToken()" style="padding:8px 20px; border-radius:6px; background:#5b9cf6; color:#fff; border:none; cursor:pointer; font-size:14px;">Save</button>
 </div>
 

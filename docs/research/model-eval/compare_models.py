@@ -8,6 +8,7 @@ from datetime import datetime
 
 CATEGORIES = ["zh-technical", "zh-mixed"]
 MODELS = ["telespeech", "whisper-baseline", "sensevoice", "gemma4"]
+NEW_PROVIDERS = ["openrouter", "gemini"]
 
 
 def mean(values):
@@ -109,7 +110,88 @@ def auto_discover(results_dir, model_eval_dir, cb_dir, asr_bench_dir):
             rows_by_model["telespeech"] = load_rows(f, "telespeech")
             break
 
+    # OpenRouter results: openrouter-<model-slug>-<method>-<ts>.jsonl
+    for f in sorted(pathlib.Path(results_dir).glob("openrouter-*.jsonl")):
+        rows = []
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                r = json.loads(line)
+                cat = r.get("category", "")
+                if isinstance(cat, list):
+                    cat = cat[0] if cat else ""
+                r["category"] = cat
+                rows.append(r)
+        if rows:
+            model_id = rows[0].get("model", "unknown")
+            method = rows[0].get("method", "baseline")
+            key = f"openrouter/{model_id}/{method}"
+            # keep latest file per key
+            rows_by_model[key] = rows
+
+    # Gemini results: gemini-<model-slug>-<method>-<ts>.jsonl
+    for f in sorted(pathlib.Path(results_dir).glob("gemini-*.jsonl")):
+        rows = []
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                r = json.loads(line)
+                cat = r.get("category", "")
+                if isinstance(cat, list):
+                    cat = cat[0] if cat else ""
+                r["category"] = cat
+                rows.append(r)
+        if rows:
+            model_id = rows[0].get("model", "unknown")
+            method = rows[0].get("method", "baseline")
+            key = f"gemini/{model_id}/{method}"
+            rows_by_model[key] = rows
+
     return rows_by_model
+
+
+def hint_effectiveness_table(groups, new_model_keys):
+    """Compare baseline vs hinted entity_recall_exact for each new-provider model."""
+    # Collect unique (provider, model_id) pairs
+    pairs = {}
+    for key in new_model_keys:
+        parts = key.split("/", 2)
+        if len(parts) == 3:
+            provider, model_id, method = parts
+            pm = f"{provider}/{model_id}"
+            pairs.setdefault(pm, {})
+            s = groups.get((key, "all"), {})
+            pairs[pm][method] = s
+
+    if not pairs:
+        return "No new-provider results found."
+
+    header = "| model | group | baseline entity_recall_exact | hinted entity_recall_exact | delta |"
+    sep    = "|---|---|---|---|---|"
+    lines = [header, sep]
+    for pm in sorted(pairs):
+        for group in ["all"] + CATEGORIES:
+            base_key = pm + "/baseline"
+            hint_key = pm + "/hinted"
+            base_s = groups.get((base_key, group))
+            hint_s = groups.get((hint_key, group))
+            base_er = base_s.get("entity_recall_exact") if base_s else None
+            hint_er = hint_s.get("entity_recall_exact") if hint_s else None
+            if base_er is None and hint_er is None:
+                continue
+            delta_str = ""
+            if base_er is not None and hint_er is not None:
+                delta = hint_er - base_er
+                sign = "+" if delta >= 0 else ""
+                delta_str = f"{sign}{delta:.3f}"
+            lines.append(
+                f"| {pm} | {group} | {fmt(base_er)} | {fmt(hint_er)} | {delta_str} |"
+            )
+    return "\n".join(lines)
 
 
 def recommendations(groups, model_names):
@@ -168,6 +250,8 @@ def main():
 
     rows_by_model = auto_discover(results_dir, _this_dir, cb_dir, asr_bench_dir)
     model_names = [m for m in MODELS if m in rows_by_model]
+    new_model_keys = sorted(k for k in rows_by_model if any(k.startswith(p + "/") for p in NEW_PROVIDERS))
+    all_model_keys = model_names + new_model_keys
 
     # Compute stats
     groups = {}
@@ -179,7 +263,9 @@ def main():
                 groups[(model_label, cat)] = compute_stats(cat_rows)
 
     table = build_table(groups, model_names)
-    rec_text = recommendations(groups, model_names)
+    new_table = build_table(groups, new_model_keys)
+    hint_table = hint_effectiveness_table(groups, new_model_keys)
+    rec_text = recommendations(groups, all_model_keys)
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_dir = pathlib.Path(args.out)
@@ -190,16 +276,24 @@ def main():
 
 Generated: {datetime.now().isoformat()}
 
-## Models Compared
+## Models Compared (Legacy)
 
 - **telespeech**: TeleSpeechASR via SiliconFlow (TASK-34 baseline)
 - **whisper-baseline**: openai/whisper-large-v3, no prompt (TASK-36 baseline)
 - **sensevoice**: FunAudioLLM/SenseVoiceSmall via SiliconFlow with hotword prompt (TASK-37)
 - **gemma4**: gemma4:e4b via Ollama local (TASK-37)
 
-## Results
+## Legacy Results
 
 {table}
+
+## New Provider Results (OpenRouter & Gemini)
+
+{new_table}
+
+## Hint 有效性分析 (baseline vs hinted entity_recall_exact)
+
+{hint_table}
 
 ## Recommendations
 
@@ -213,6 +307,7 @@ Generated: {datetime.now().isoformat()}
 - `entity_recall_fuzzy`: fraction matched via difflib fuzzy similarity (threshold=0.3)
 - `latency_s`: mean wall-clock seconds per transcription call
 - Categories: `zh-technical` = technical Chinese terms with English entity names, `zh-mixed` = mixed Chinese+English speech
+- `method`: `baseline` = no entity hint; `hinted` = known_entities injected into prompt/text field
 """
 
     report_path.write_text(report, encoding="utf-8")

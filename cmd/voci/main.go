@@ -191,9 +191,7 @@ func run(
 		if hintedFn == nil {
 			hintedFn = pipeline.RunHinted
 		}
-		if rewriteFnOpt == nil {
-			rewriteFnOpt = pipeline.Rewrite
-		}
+		// --serve path intentionally skips Rewrite (RewriteFn stays nil so server.go's nil-guard skips it)
 		if classifyFn == nil {
 			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
 				return intent.Classify(ctx, rewritten, fullContext, chat)

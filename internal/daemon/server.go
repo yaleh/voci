@@ -122,10 +122,14 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rewritten, err := s.RewriteFn(ctx, hinted, hint, s.ChatFn)
-	if err != nil {
-		http.Error(w, "rewrite error: "+err.Error(), http.StatusInternalServerError)
-		return
+	rewritten := hinted
+	if rewriteFn := s.RewriteFn; rewriteFn != nil {
+		var err error
+		rewritten, err = rewriteFn(ctx, hinted, hint, s.ChatFn)
+		if err != nil {
+			http.Error(w, "rewrite error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 
 	proposal, err := s.ClassifyFn(ctx, rewritten, hint, s.ChatFn)

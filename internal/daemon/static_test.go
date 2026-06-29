@@ -112,7 +112,7 @@ func TestEmbeddedIndex_ReferencesRecorderAndFields(t *testing.T) {
 	}
 	body := string(data)
 
-	checks := []string{"recorder.js", "Rewritten", "Kind"}
+	checks := []string{"recorder.js", "voci-compose", "voci-dialogue"}
 	for _, want := range checks {
 		if !strings.Contains(body, want) {
 			t.Errorf("index.html missing %q", want)
@@ -131,9 +131,8 @@ func TestEmbeddedRecorder_UsesContract(t *testing.T) {
 		"/api/voice/transcribe",
 		"/api/voice/emit",
 		"MediaRecorder",
-		"Rewritten",
-		"Kind",
-		`"kind"`,
+		"composeEl",
+		"/api/context",
 	}
 	for _, want := range checks {
 		if !strings.Contains(body, want) {

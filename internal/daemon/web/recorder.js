@@ -1,11 +1,10 @@
 // voci PTT recorder
 // APIs: GET /api/context, POST /api/voice/transcribe, POST /api/voice/emit
 (function () {
-  var phase = 'idle'; // idle | recording | processing | preview
+  var phase = 'idle'; // idle | recording | processing
   var isRecording = false;
   var chunks = [], recorder = null, mediaStream = null;
   var timerSecs = 0, timerInterval = null;
-  var previewData = null;
   var contextExpanded = false;
   var lastRefresh = Date.now();
   var localMessages = [];
@@ -21,16 +20,6 @@
   var entitiesList     = $('entities-list');
   var tasksList        = $('tasks-list');
   var dialogueFeed     = $('voci-dialogue');
-  var previewOverlay   = $('preview-overlay');
-  var previewBackdrop  = $('preview-backdrop');
-  var previewKindBadge = $('preview-kind-badge');
-  var previewConfEl    = $('preview-conf');
-  var previewRawEl     = $('preview-raw');
-  var previewHintedEl  = $('preview-hinted');
-  var previewSendEl    = $('preview-send');
-  var previewAmbig     = $('preview-ambiguous');
-  var confirmBtn       = $('confirm-btn');
-  var rerecordBtn      = $('rerecord-btn');
   var textInputWrap    = $('text-input-wrap');
   var recordingWrap    = $('recording-wrap');
   var processingWrap   = $('processing-wrap');
@@ -49,7 +38,6 @@
     phase = p;
     var rec  = p === 'recording';
     var proc = p === 'processing';
-    var prev = p === 'preview';
     var text = !rec && !proc;
 
     d(textInputWrap,  text ? 'block' : 'none');
@@ -63,8 +51,6 @@
     d(sendBtn,        text ? 'flex'  : 'none');
     d(cancelRecBtn,   rec  ? 'block' : 'none');
     d(processingDots, proc ? 'flex'  : 'none');
-
-    d(previewOverlay, prev ? 'flex'  : 'none');
   }
 
   function updateSendBtn() {
@@ -248,43 +234,17 @@
     if (recorder && recorder.state === 'recording') recorder.stop();
   }
 
-  var KIND_COLORS = {
-    direct_prompt:  { bg: '#0c1a30', fg: '#5b9cf6' },
-    query:          { bg: '#061c26', fg: '#06b6d4' },
-    backlog_action: { bg: '#140e24', fg: '#a855f7' },
-    ambiguous:      { bg: '#1c1008', fg: '#f97316' },
-  };
-
   function processAudio(blob) {
     fetch('/api/voice/transcribe', { method: 'POST', body: blob })
       .then(function (r) { return r.json(); })
       .then(function (p) {
         var kind  = p.Kind || 'direct_prompt';
-        var conf  = p.Confidence != null ? p.Confidence : 0;
-        var raw   = p.RawTranscript || '';
         var rew   = p.Rewritten || '';
         var ambig = kind === 'ambiguous';
-        var kc    = KIND_COLORS[kind] || { bg: '#111', fg: '#888' };
 
-        previewKindBadge.textContent      = kind.replace(/_/g, ' ');
-        previewKindBadge.style.background = kc.bg;
-        previewKindBadge.style.color      = kc.fg;
-        previewConfEl.textContent  = 'conf ' + (conf * 100).toFixed(0) + '%';
-        previewRawEl.textContent    = raw;
-        previewHintedEl.textContent = rew;
-        previewSendEl.textContent   = rew;
-
-        previewAmbig.style.display = ambig ? 'block' : 'none';
-        if (ambig) {
-          confirmBtn.style.cssText = 'flex:1;padding:7px 0;border-radius:7px;font-size:12.5px;font-weight:500;background:#0a0d14;color:#3d5068;border:1px solid #0e1220;font-family:inherit;cursor:not-allowed';
-        } else {
-          confirmBtn.style.cssText = 'flex:1;padding:7px 0;border-radius:7px;font-size:12.5px;font-weight:500;background:#0f2219;color:#22c55e;border:1px solid #1a3d28;font-family:inherit;cursor:pointer';
-        }
-
-        previewData    = { kind: kind, conf: conf, raw: raw, rewritten: rew, ambig: ambig };
         composeEl.value = ambig ? '' : rew;
         updateSendBtn();
-        setPhase('preview');
+        setPhase('idle');
       })
       .catch(function (e) { console.error('transcribe:', e); setPhase('idle'); });
   }
@@ -304,7 +264,6 @@
         localMessages.push({ role: 'user',      text: text,    time: time, events: [] });
         localMessages.push({ role: 'assistant', text: 'On it.', time: time, events: [] });
         if (localMessages.length > 40) localMessages.splice(0, localMessages.length - 40);
-        previewData     = null;
         composeEl.value = '';
         updateSendBtn();
         setPhase('idle');
@@ -334,21 +293,6 @@
   sendBtn.addEventListener('click', function () {
     var t = composeEl.value.trim();
     if (t) sendText(t, 'direct_prompt');
-  });
-
-  confirmBtn.addEventListener('click', function () {
-    if (previewData && !previewData.ambig) sendText(previewData.rewritten, previewData.kind);
-  });
-  rerecordBtn.addEventListener('click', function () {
-    previewData     = null;
-    composeEl.value = '';
-    setPhase('idle');
-    startRec();
-  });
-  previewBackdrop.addEventListener('click', function () {
-    previewData     = null;
-    composeEl.value = '';
-    setPhase('idle');
   });
 
   $('mic-btn').addEventListener('mousedown', startRec);

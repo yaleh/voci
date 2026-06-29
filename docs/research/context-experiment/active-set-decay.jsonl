@@ -1,0 +1,6 @@
+{"delta": 1, "mean_overlap": 0.8717, "median_overlap": 0.913, "n_pairs": 3264}
+{"delta": 2, "mean_overlap": 0.7476, "median_overlap": 0.7727, "n_pairs": 3204}
+{"delta": 3, "mean_overlap": 0.6258, "median_overlap": 0.6316, "n_pairs": 3147}
+{"delta": 5, "mean_overlap": 0.3696, "median_overlap": 0.3333, "n_pairs": 3041}
+{"delta": 10, "mean_overlap": 0.2825, "median_overlap": 0.25, "n_pairs": 2817}
+{"delta": 20, "mean_overlap": 0.2405, "median_overlap": 0.2, "n_pairs": 2415}

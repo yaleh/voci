@@ -4,6 +4,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 from adapters.gemma4 import Gemma4Adapter
 from adapters.telespeech import TeleSpeechAdapter
+from adapters.volcengine import VolcengineASRAdapter
 from metrics import wer, cer, entity_recall, language_confusion
 
 def load_cases(cases_path):
@@ -25,6 +26,11 @@ def run_benchmark(args):
             print(f"WARNING: telespeech unavailable: {e}", file=sys.stderr)
     if args.models in ("all", "gemma4"):
         adapters.append(Gemma4Adapter())
+    if args.models in ("all", "volcengine"):
+        try:
+            adapters.append(VolcengineASRAdapter())
+        except RuntimeError as e:
+            print(f"WARNING: volcengine unavailable: {e}", file=sys.stderr)
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     out_dir = pathlib.Path(args.out)
@@ -80,9 +86,13 @@ def run_benchmark(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--models", default="all", choices=["all", "telespeech", "gemma4"])
+    parser.add_argument("--models", default="all", choices=["all", "telespeech", "gemma4", "volcengine"])
     parser.add_argument("--cases", default="testdata/testcases.json")
     parser.add_argument("--out", default="docs/research/asr-bench/results/")
+    parser.add_argument("--config", default="", metavar="PATH",
+                        help="Path to voci config YAML (overrides ~/.config/voci/config.yaml)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+    if args.config:
+        os.environ["VOCI_CONFIG"] = args.config
     run_benchmark(args)

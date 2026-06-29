@@ -9,6 +9,7 @@ import (
 )
 
 // Config holds runtime configuration for voci.
+// Language string contains the language code (e.g. "zh", "en") read from VOCI_LANGUAGE env.
 type Config struct {
 	SiliconFlowKey string
 	OllamaHost     string

@@ -23,6 +23,7 @@ type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.Ch
 type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
 
 // Server is a local MCP JSON-RPC HTTP server that exposes the voci pipeline as a tool.
+// Language string is passed to TranscribeFn to select the ASR model (see VOCI_LANGUAGE).
 type Server struct {
 	TranscribeFn TranscribeFn
 	HintedFn     HintedFn

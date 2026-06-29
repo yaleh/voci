@@ -13,8 +13,10 @@ import (
 
 const DefaultAPIURL = "https://api.siliconflow.cn/v1/audio/transcriptions"
 
+const modelTeleSpeech = `TeleAI/TeleSpeechASR`
+
 var languageModel = map[string]string{
-	"zh": "TeleAI/TeleSpeechASR",
+	"zh": modelTeleSpeech,
 }
 
 const defaultASRModel = "openai/whisper-large-v3"

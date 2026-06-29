@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/yalehu/voci/internal/adapter"
@@ -134,6 +136,8 @@ func run(
 	serveFlag := fs.Bool("serve", false, "run as Monitor-host server; writes event lines to stdout")
 	servePortFlag := fs.Int("serve-port", 9474, "port for serve HTTP server (used with --serve)")
 	serveHostFlag := fs.String("serve-host", "127.0.0.1", "bind host for serve HTTP server (use 0.0.0.0 for LAN access)")
+	shareFlag := fs.Bool("share", false, "expose serve port via Cloudflare Quick Tunnel")
+	shareAuthFlag := fs.String("share-auth", "", "Bearer token for --share (auto-generated if empty)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -223,6 +227,34 @@ func run(
 			Language:    cfg.Language,
 			EventWriter: os.Stdout,
 			EventPath:   *eventsPathFlag,
+		}
+		if *shareFlag {
+			token := *shareAuthFlag
+			if token == "" {
+				var genErr error
+				token, genErr = daemon.GenerateToken()
+				if genErr != nil {
+					return fmt.Errorf("generate token: %w", genErr)
+				}
+			}
+			srv.BearerToken = token
+			_, portStr, splitErr := net.SplitHostPort(addr)
+			if splitErr != nil {
+				return fmt.Errorf("parse addr %q: %w", addr, splitErr)
+			}
+			port, convErr := strconv.Atoi(portStr)
+			if convErr != nil {
+				return fmt.Errorf("parse port %q: %w", portStr, convErr)
+			}
+			tunnelCtx := context.Background()
+			tunnelCmd, publicURL, tunnelErr := daemon.StartTunnel(tunnelCtx, port, os.Stderr)
+			if tunnelErr != nil {
+				return fmt.Errorf("--share: %w", tunnelErr)
+			}
+			defer tunnelCmd.Process.Kill()
+			fmt.Fprintf(os.Stderr, "voci share URL: %s\n", publicURL)
+			fmt.Fprintf(os.Stderr, "Bearer token:   %s\n", token)
+			fmt.Fprintf(os.Stderr, "Note: audio and transcriptions route through Cloudflare infrastructure.\n")
 		}
 		return srv.Start(addr)
 	}

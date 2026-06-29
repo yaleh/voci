@@ -165,13 +165,6 @@ func TestEmbeddedRecorder_NoDialogueFlicker(t *testing.T) {
 		}
 	}
 
-	// Verify the guard is actually used in a conditional before innerHTML assignment.
-	// A correct guard looks like: if (html === lastDialogueHtml) return;
-	if !strings.Contains(body, "lastDialogueHtml") {
-		t.Error("recorder.js: lastDialogueHtml guard not found — dialogue will flicker on every context poll")
-	}
-	// Must NOT unconditionally assign dialogueFeed.innerHTML without a guard.
-	// We check that `return` appears near lastDialogueHtml (early-return pattern).
 	idx := strings.Index(body, "lastDialogueHtml")
 	if idx < 0 {
 		t.Fatal("lastDialogueHtml not found")
@@ -179,6 +172,40 @@ func TestEmbeddedRecorder_NoDialogueFlicker(t *testing.T) {
 	surroundingContext := body[idx : min(len(body), idx+200)]
 	if !strings.Contains(surroundingContext, "return") {
 		t.Errorf("lastDialogueHtml guard does not appear to use early-return pattern; surrounding: %q", surroundingContext)
+	}
+}
+
+func TestEmbeddedRecorder_HasAuthHeader(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	if !strings.Contains(string(data), "Authorization") {
+		t.Error("recorder.js missing Authorization header")
+	}
+}
+
+func TestEmbeddedRecorder_HasLocalStorageToken(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	body := string(data)
+	if !strings.Contains(body, "localStorage") {
+		t.Error("recorder.js missing localStorage")
+	}
+	if !strings.Contains(body, "voci_token") {
+		t.Error("recorder.js missing voci_token")
+	}
+}
+
+func TestEmbeddedIndex_HasTokenInputUI(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	if !strings.Contains(string(data), "voci-token") {
+		t.Error("index.html missing voci-token element")
 	}
 }
 

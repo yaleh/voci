@@ -56,14 +56,17 @@ type Server struct {
 	EventWriter io.Writer
 	// EventPath is the optional path to the event log file (debug/fallback only).
 	EventPath string
+	// BearerToken, when non-empty, requires all /api/* requests to carry
+	// "Authorization: Bearer <token>". Static file routes are unaffected.
+	BearerToken string
 }
 
 // Handler returns an http.Handler routing the voice endpoints and static UI.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/voice/transcribe", s.handleTranscribe)
-	mux.HandleFunc("/api/voice/emit", s.handleEmit)
-	mux.HandleFunc("/api/context", s.handleContext)
+	mux.Handle("/api/voice/transcribe", BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleTranscribe)))
+	mux.Handle("/api/voice/emit", BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleEmit)))
+	mux.Handle("/api/context", BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleContext)))
 	sub, _ := fs.Sub(embeddedFS, "web")
 	mux.Handle("/", http.FileServerFS(sub))
 	return mux

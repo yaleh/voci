@@ -28,8 +28,34 @@ func ParseTunnelURL(line string) string {
 	return trycloudflareRe.FindString(line)
 }
 
+// drainStderr reads r line by line, writing every line to logW (if non-nil),
+// and sends the first trycloudflare.com URL found to urlCh. It keeps reading
+// until EOF so that all post-URL cloudflared output is preserved in logW.
+// Sends "" to urlCh if r closes without a URL.
+func drainStderr(r io.Reader, logW io.Writer, urlCh chan<- string) {
+	sc := bufio.NewScanner(r)
+	urlSent := false
+	for sc.Scan() {
+		line := sc.Text()
+		if logW != nil {
+			fmt.Fprintln(logW, line)
+		}
+		if !urlSent {
+			if u := ParseTunnelURL(line); u != "" {
+				urlCh <- u
+				urlSent = true
+			}
+		}
+	}
+	if !urlSent {
+		urlCh <- ""
+	}
+}
+
 // StartTunnel starts cloudflared Quick Tunnel for the given port.
 // It reads cloudflared's stderr until it finds the public URL or times out (15s).
+// After the URL is found the drain goroutine keeps running, writing all subsequent
+// cloudflared output to logW so crash diagnostics are not lost.
 // Returns the running *exec.Cmd and the public URL.
 func StartTunnel(ctx context.Context, port int, logW io.Writer) (*exec.Cmd, string, error) {
 	bin, err := exec.LookPath("cloudflared")
@@ -47,20 +73,7 @@ func StartTunnel(ctx context.Context, port int, logW io.Writer) (*exec.Cmd, stri
 	}
 
 	urlCh := make(chan string, 1)
-	go func() {
-		sc := bufio.NewScanner(stderr)
-		for sc.Scan() {
-			line := sc.Text()
-			if logW != nil {
-				fmt.Fprintln(logW, line)
-			}
-			if u := ParseTunnelURL(line); u != "" {
-				urlCh <- u
-				return
-			}
-		}
-		urlCh <- ""
-	}()
+	go drainStderr(stderr, logW, urlCh)
 
 	select {
 	case u := <-urlCh:

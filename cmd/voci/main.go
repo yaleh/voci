@@ -102,6 +102,25 @@ func defaultCmdRunner(name string, args ...string) (string, error) {
 	return string(out), err
 }
 
+// openCloudflaredLog opens ~/.voci/cloudflared.log in append mode for persistent
+// cloudflared diagnostic logging. Returns a no-op writer and a no-op closer on
+// any error so callers never need to check.
+func openCloudflaredLog() (io.Writer, func()) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return io.Discard, func() {}
+	}
+	dir := filepath.Join(home, ".voci")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return io.Discard, func() {}
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "cloudflared.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return io.Discard, func() {}
+	}
+	return f, func() { f.Close() }
+}
+
 // run is the testable entry point.
 func run(
 	args []string,
@@ -248,7 +267,9 @@ func run(
 			}
 			tunnelCtx, tunnelCancel := context.WithCancel(context.Background())
 			defer tunnelCancel()
-			tunnelCmd, publicURL, tunnelErr := daemon.StartTunnel(tunnelCtx, port, os.Stderr)
+			tunnelLogW, tunnelLogClose := openCloudflaredLog()
+			defer tunnelLogClose()
+			tunnelCmd, publicURL, tunnelErr := daemon.StartTunnel(tunnelCtx, port, io.MultiWriter(os.Stderr, tunnelLogW))
 			if tunnelErr != nil {
 				return fmt.Errorf("--share: %w", tunnelErr)
 			}

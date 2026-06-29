@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -18,6 +20,42 @@ func TestParseTunnelURL_ExtractsHTTPS(t *testing.T) {
 func TestParseTunnelURL_ReturnsEmptyWhenNoMatch(t *testing.T) {
 	got := ParseTunnelURL("no url here")
 	if got != "" {
+		t.Errorf("want empty, got %q", got)
+	}
+}
+
+// TestDrainStderr_ContinuesAfterURL verifies that drainStderr keeps writing to
+// logW even after the trycloudflare URL has been sent, and does not drop lines.
+func TestDrainStderr_ContinuesAfterURL(t *testing.T) {
+	input := strings.Join([]string{
+		"INF starting tunnel",
+		"INF | https://abc123.trycloudflare.com |",
+		"INF post-url line 1",
+		"INF post-url line 2",
+	}, "\n") + "\n"
+
+	var logBuf bytes.Buffer
+	urlCh := make(chan string, 1)
+	drainStderr(strings.NewReader(input), &logBuf, urlCh)
+
+	got := <-urlCh
+	if got != "https://abc123.trycloudflare.com" {
+		t.Errorf("url: want https://abc123.trycloudflare.com, got %q", got)
+	}
+	log := logBuf.String()
+	for _, want := range []string{"INF starting tunnel", "INF | https://abc123.trycloudflare.com |", "INF post-url line 1", "INF post-url line 2"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("logW missing %q; got:\n%s", want, log)
+		}
+	}
+}
+
+// TestDrainStderr_NoURL verifies that drainStderr sends empty string when
+// the reader closes without emitting a trycloudflare URL.
+func TestDrainStderr_NoURL(t *testing.T) {
+	urlCh := make(chan string, 1)
+	drainStderr(strings.NewReader("no url here\n"), nil, urlCh)
+	if got := <-urlCh; got != "" {
 		t.Errorf("want empty, got %q", got)
 	}
 }

@@ -34,10 +34,12 @@ func main() {
 	samples := make([]struct {
 		filename string
 		text     string
+		voice    string
 	}, len(cases))
 	for i, c := range cases {
 		samples[i].filename = c.ID + ".wav"
 		samples[i].text = c.TTSInput
+		samples[i].voice = c.Voice
 	}
 
 	for _, s := range samples {
@@ -48,7 +50,7 @@ func main() {
 		}
 
 		fmt.Printf("generating %s ...\n", outPath)
-		audioData, err := generateSpeech(cfg.SiliconFlowKey, s.text)
+		audioData, err := generateSpeech(cfg.SiliconFlowKey, s.text, s.voice)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "TTS error for %s: %v\n", s.filename, err)
 			os.Exit(1)
@@ -72,11 +74,16 @@ type speechRequest struct {
 	Speed          float64 `json:"speed"`
 }
 
-func generateSpeech(apiKey, text string) ([]byte, error) {
+const defaultVoice = "FunAudioLLM/CosyVoice2-0.5B:claire"
+
+func generateSpeech(apiKey, text, voice string) ([]byte, error) {
+	if voice == "" {
+		voice = defaultVoice
+	}
 	reqBody := speechRequest{
 		Model:          "FunAudioLLM/CosyVoice2-0.5B",
 		Input:          text,
-		Voice:          "FunAudioLLM/CosyVoice2-0.5B:claire",
+		Voice:          voice,
 		ResponseFormat: "wav",
 		Speed:          1.0,
 	}

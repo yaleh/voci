@@ -45,10 +45,14 @@ func LoadConfig() (Config, error) {
 	cfg.ASRAPIURL = os.Getenv("ASR_API_URL")
 	cfg.ASRModel = os.Getenv("ASR_MODEL")
 
-	// Try to load from file
-	home, err := os.UserHomeDir()
-	if err == nil {
-		cfgPath := filepath.Join(home, ".config", "voci", "config.yaml")
+	// Try to load from file; VOCI_CONFIG overrides the default path.
+	cfgPath := os.Getenv("VOCI_CONFIG")
+	if cfgPath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			cfgPath = filepath.Join(home, ".config", "voci", "config.yaml")
+		}
+	}
+	if cfgPath != "" {
 		data, err := os.ReadFile(cfgPath)
 		if err == nil {
 			var fc fileConfig

@@ -152,6 +152,8 @@ func TestLoadConfigASRModelFromEnv(t *testing.T) {
 }
 
 func TestLoadConfigASRAPIKeyFallsBackToSiliconFlowKey(t *testing.T) {
+	t.Setenv("VOCI_CONFIG", "")
+	t.Setenv("HOME", t.TempDir()) // no config.yaml in temp dir
 	t.Setenv("ASR_API_KEY", "")
 	t.Setenv("SILICONFLOW_API_KEY", "sk-sf")
 	cfg, err := LoadConfig()
@@ -182,6 +184,34 @@ func TestLoadConfigMissingKeyNewFields(t *testing.T) {
 	_, err := LoadConfig()
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestLoadConfigVociConfigEnvOverridesPath(t *testing.T) {
+	t.Setenv("ASR_API_KEY", "")
+	t.Setenv("SILICONFLOW_API_KEY", "")
+	t.Setenv("ASR_PROVIDER", "")
+
+	f, err := os.CreateTemp(t.TempDir(), "voci-*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("asr_provider: gemini\nasr_api_key: gem-key\n")
+	f.Close()
+
+	t.Setenv("VOCI_CONFIG", f.Name())
+	// HOME points somewhere without a config.yaml — proves VOCI_CONFIG is used, not HOME
+	t.Setenv("HOME", t.TempDir())
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ASRProvider != "gemini" {
+		t.Errorf("ASRProvider: want gemini, got %q", cfg.ASRProvider)
+	}
+	if cfg.ASRAPIKey != "gem-key" {
+		t.Errorf("ASRAPIKey: want gem-key, got %q", cfg.ASRAPIKey)
 	}
 }
 

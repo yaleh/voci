@@ -3,8 +3,8 @@ package adapter
 import (
 	"errors"
 
-	vocicontext "github.com/yalehu/voci/internal/context"
-	"github.com/yalehu/voci/internal/intent"
+	vocicontext "github.com/yaleh/voci/internal/context"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 // Channel represents the delivery channel an adapter supports.

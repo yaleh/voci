@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/gate"
-	"github.com/yalehu/voci/internal/intent"
-	"github.com/yalehu/voci/internal/ollama"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/gate"
+	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 func makeTempWav(t *testing.T) string {

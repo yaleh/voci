@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/yalehu/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/ollama"
 )
 
 // RewriteWithFeedbackFn is a function that rewrites with context of previous result and user feedback.

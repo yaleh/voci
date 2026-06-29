@@ -3,8 +3,8 @@ package adapter
 import (
 	"testing"
 
-	vocicontext "github.com/yalehu/voci/internal/context"
-	"github.com/yalehu/voci/internal/intent"
+	vocicontext "github.com/yaleh/voci/internal/context"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 func TestChannelConstants(t *testing.T) {

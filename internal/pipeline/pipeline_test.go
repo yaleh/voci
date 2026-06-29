@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/ollama"
 )
 
 type testCase struct {

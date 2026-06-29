@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	vocicontext "github.com/yalehu/voci/internal/context"
-	"github.com/yalehu/voci/internal/intent"
+	vocicontext "github.com/yaleh/voci/internal/context"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 var _ Adapter = (*ClaudeCodeAdapter)(nil)

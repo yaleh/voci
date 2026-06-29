@@ -12,14 +12,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/intent"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 func newDeterministicDaemonServer(buf *bytes.Buffer) *Server {
 	return &Server{
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return "raw transcript", nil
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+			return "raw transcript"
 		},
 		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "hinted transcript", nil
@@ -98,6 +98,46 @@ func TestE2E_Daemon_EmitWritesOneLine(t *testing.T) {
 	}
 	if ev.Kind != "direct_prompt" {
 		t.Errorf("ev.Kind: got %q, want %q", ev.Kind, "direct_prompt")
+	}
+}
+
+// TestE2E_Emit_EventWriterJSONMatchesGrepFilter is the regression test for the
+// Monitor silence bug: /api/voice/emit must write a JSON line whose key is
+// "rewritten" (lowercase) so the voci-listen grep pattern '"rewritten"' matches.
+func TestE2E_Emit_EventWriterJSONMatchesGrepFilter(t *testing.T) {
+	var buf bytes.Buffer
+	srv := makeEmitServerWithWriter(t, &buf)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/voice/emit", "application/json",
+		strings.NewReader(`{"text":"pwd","kind":"direct_prompt"}`))
+	if err != nil {
+		t.Fatalf("POST /api/voice/emit: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+
+	line := strings.TrimSpace(buf.String())
+
+	// Primary assertion: the grep pattern '"rewritten"' must match this line.
+	if !strings.Contains(line, `"rewritten"`) {
+		t.Errorf(`EventWriter output missing key "rewritten"; voci-listen grep pattern '"rewritten"' will not fire.\nGot: %s`, line)
+	}
+	// Inverse guard: must NOT have uppercase key (which would indicate a tag regression).
+	if strings.Contains(line, `"Rewritten"`) {
+		t.Errorf(`EventWriter output contains "Rewritten" (uppercase); json tag on Event struct has regressed.\nGot: %s`, line)
+	}
+
+	// Roundtrip sanity: value is preserved.
+	var ev Event
+	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		t.Fatalf("unmarshal emitted event: %v", err)
+	}
+	if ev.Rewritten != "pwd" {
+		t.Errorf("ev.Rewritten: want %q, got %q", "pwd", ev.Rewritten)
 	}
 }
 

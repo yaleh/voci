@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yalehu/voci/internal/intent"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 // TestPlaywrightSetup starts a real httptest.Server for Playwright e2e tests.
@@ -26,8 +26,8 @@ func TestPlaywrightSetup(t *testing.T) {
 
 	var buf bytes.Buffer
 	srv := &Server{
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return "raw transcript", nil
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+			return "raw transcript"
 		},
 		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "hinted transcript", nil

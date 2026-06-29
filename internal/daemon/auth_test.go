@@ -60,17 +60,17 @@ func TestBearerMiddleware_Rejects401WhenSchemeMismatch(t *testing.T) {
 	}
 }
 
-func TestGenerateToken_Is64HexChars(t *testing.T) {
+func TestGenerateToken_Is6Digits(t *testing.T) {
 	tok, err := GenerateToken()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tok) != 64 {
-		t.Errorf("want 64 chars, got %d: %q", len(tok), tok)
+	if len(tok) != 6 {
+		t.Errorf("want 6 chars, got %d: %q", len(tok), tok)
 	}
 	for _, c := range tok {
-		if !strings.ContainsRune("0123456789abcdef", c) {
-			t.Errorf("non-hex char %q in token", c)
+		if !strings.ContainsRune("0123456789", c) {
+			t.Errorf("non-digit char %q in token", c)
 		}
 	}
 }

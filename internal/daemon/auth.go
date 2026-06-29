@@ -2,18 +2,20 @@ package daemon
 
 import (
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/binary"
+	"fmt"
 	"net/http"
 	"strings"
 )
 
-// GenerateToken returns a 64-char lowercase hex token (32 random bytes).
+// GenerateToken returns a 6-digit numeric token, easy to read and share.
 func GenerateToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(b), nil
+	n := binary.BigEndian.Uint32(b[:]) % 1_000_000
+	return fmt.Sprintf("%06d", n), nil
 }
 
 // BearerMiddleware wraps next with Bearer token authentication.

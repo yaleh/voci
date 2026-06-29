@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/ollama"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 // makeMockChatFn creates a ChatFn backed by an httptest.Server that returns the

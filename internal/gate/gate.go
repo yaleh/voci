@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/yalehu/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 // GateResult holds the outcome of the human confirmation gate.

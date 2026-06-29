@@ -1,4 +1,4 @@
-module github.com/yalehu/voci
+module github.com/yaleh/voci
 
 go 1.23.1
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yalehu/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/ollama"
 )
 
 // ChatFn is a function that calls an LLM with messages and returns the response.

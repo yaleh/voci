@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/yalehu/voci/internal/asr"
-	"github.com/yalehu/voci/internal/intent"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/asr"
+	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 //go:embed web/*

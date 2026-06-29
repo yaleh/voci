@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yalehu/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 // CmdRunner is a function that runs an external command and returns its combined output.

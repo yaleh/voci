@@ -3,6 +3,10 @@
 (function () {
   // ── Token auth ───────────────────────────────────────────
   var STORAGE_KEY = 'voci_token';
+  // Set to true when the server's initial probe returns 401 (--share mode).
+  // Gates all subsequent API calls until a valid token is stored.
+  var authRequired = false;
+  var pollingStarted = false;
 
   function getToken() {
     return localStorage.getItem(STORAGE_KEY) || '';
@@ -16,15 +20,49 @@
     return fetch(url, opts);
   }
 
-  function checkToken() {
+  function showTokenOverlay() {
     var setup = document.getElementById('voci-token-setup');
-    if (setup) {
-      if (!getToken()) {
-        setup.style.display = 'flex';
-      } else {
-        setup.style.display = 'none';
-      }
+    if (setup) setup.style.display = 'flex';
+  }
+
+  function hideTokenOverlay() {
+    var setup = document.getElementById('voci-token-setup');
+    if (setup) setup.style.display = 'none';
+  }
+
+  function startPolling() {
+    if (pollingStarted) return;
+    pollingStarted = true;
+    setInterval(refreshContext, 5000);
+  }
+
+  // Probes /api/context without a token to determine whether the server requires
+  // Bearer auth (--share mode returns 401). In local mode (no --share) it returns
+  // 200 and we proceed without prompting for a token at all.
+  // If a token is already stored we skip the probe and use it directly.
+  function initAuth() {
+    var tok = getToken();
+    if (tok) {
+      refreshContext();
+      startPolling();
+      return;
     }
+    fetch('/api/context')
+      .then(function(r) {
+        if (r.status === 401) {
+          authRequired = true;
+          showTokenOverlay();
+        } else {
+          r.json().then(function(resp) {
+            setConnected(true);
+            var hint = resp.hint || '';
+            if (hint !== lastHint) { lastHint = hint; renderContext(hint); }
+            lastRefresh = Date.now();
+          }).catch(function() {});
+          startPolling();
+        }
+      })
+      .catch(function() { setConnected(false); startPolling(); });
   }
 
   function saveToken() {
@@ -33,8 +71,9 @@
     var val = input.value.trim();
     if (val) {
       localStorage.setItem(STORAGE_KEY, val);
-      var setup = document.getElementById('voci-token-setup');
-      if (setup) setup.style.display = 'none';
+      hideTokenOverlay();
+      refreshContext();
+      startPolling();
     }
   }
 
@@ -226,9 +265,18 @@
   }
 
   function refreshContext() {
+    if (authRequired && !getToken()) return;
     apiFetch('/api/context')
-      .then(function (r) { return r.json(); })
-      .then(function (resp) {
+      .then(function(r) {
+        if (r.status === 401) {
+          authRequired = true;
+          showTokenOverlay();
+          return null;
+        }
+        return r.json();
+      })
+      .then(function(resp) {
+        if (!resp) return;
         setConnected(true);
         var hint = resp.hint || '';
         if (hint !== lastHint) {
@@ -237,7 +285,7 @@
         }
         lastRefresh = Date.now();
       })
-      .catch(function () { setConnected(false); });
+      .catch(function() { setConnected(false); });
   }
 
   // ── Recording ────────────────────────────────────────────
@@ -318,6 +366,9 @@
         composeEl.value = '';
         updateSendBtn();
         setPhase('idle');
+        // Re-render immediately with current hint so local messages appear at once,
+        // without waiting for a hint change on the next /api/context poll.
+        renderContext(lastHint || '');
         setTimeout(refreshContext, 600);
       }
     }).catch(function (e) { console.error('emit:', e); setPhase('idle'); });
@@ -369,9 +420,7 @@
 
   setPhase('idle');
   updateSendBtn();
-  checkToken();
-  refreshContext();
-  setInterval(refreshContext, 5000);
+  initAuth();
   setInterval(function () {
     var s = Math.floor((Date.now() - lastRefresh) / 1000);
     refreshBtn.textContent = s < 2 ? 'just now' : s < 60 ? s + 's ago' : Math.floor(s / 60) + 'm ago';

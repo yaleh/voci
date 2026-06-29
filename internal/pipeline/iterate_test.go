@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/ollama"
 )
 
 func TestIterateExitsOnEmptyInput(t *testing.T) {

@@ -3,8 +3,8 @@ package adapter
 import (
 	"fmt"
 
-	vocicontext "github.com/yalehu/voci/internal/context"
-	"github.com/yalehu/voci/internal/intent"
+	vocicontext "github.com/yaleh/voci/internal/context"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 // CodexAdapter integrates voci with the OpenAI Codex CLI tool.

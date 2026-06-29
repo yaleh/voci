@@ -1,11 +1,13 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor with command=\"voci serve\" (the TASK-16 Monitor-host voice producer). voci serve's stdout emits one JSON event line per utterance; each line wakes the session, the Rewritten field is extracted and executed inline as the next in-session instruction. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via self-re-invoke hint in the Monitor description. Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with command=\"voci serve --share\" (Cloudflare Quick Tunnel + Bearer auth). Merges stderr into stdout via 2>&1 and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via self-re-invoke hint in the Monitor description. Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop
 contracts:
   - grep: "Monitor(persistent=true"
     target: self
-  - grep: 'command="voci serve"'
+  - grep: 'command="voci serve'
+    target: self
+  - grep: "--share"
     target: self
   - grep: "description="
     target: self
@@ -15,13 +17,17 @@ contracts:
     target: self
   - grep: ".listen-stop"
     target: self
-  - grep: "Rewritten"
+  - grep: "rewritten"
     target: self
   - grep: "TaskStop"
     target: self
   - grep: "TaskList"
     target: self
   - grep: "re-invoke"
+    target: self
+  - grep: "voci share URL"
+    target: self
+  - grep: "Bearer token"
     target: self
 ---
 
@@ -35,12 +41,15 @@ Monitor      :: { persistent : Bool, command : String, description : String } �
 exists       :: Path → Bool
 
 -- Business logic signatures
-listenLoop   :: () → Outcome          -- entry point
-stopStaleMon :: () → ()               -- stop orphaned Monitor tasks from a previous session
-stopSentinel :: () → Bool             -- true when ~/.voci/.listen-stop exists
-extractInstruction :: Line → String   -- parse JSON, return Rewritten field; raw fallback
+listenLoop        :: () → Outcome          -- entry point
+stopStaleMon      :: () → ()               -- stop orphaned Monitor tasks from a previous session
+stopSentinel      :: () → Bool             -- true when ~/.voci/.listen-stop exists
+classifyEvent     :: Line → EventKind      -- distinguish voice events from startup info lines
+extractInstruction :: Line → String        -- parse JSON, return Rewritten field; raw fallback
 
-data Outcome = Listening | Stopped
+data Outcome   = Listening | Stopped
+data EventKind = VoiceEvent String         -- JSON line with Rewritten field → execute inline
+               | InfoMessage String        -- "voci share URL:" or "Bearer token:" → display to user
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Entry Point Guard: Cold-start vs. Reconnect
@@ -60,21 +69,24 @@ listenLoop() = {
   if (stopSentinel()):
     return: Stopped,
 
-  -- Arm persistent Monitor on the TASK-16 voci serve process.
-  -- voci serve writes one JSON event line to stdout per utterance.
-  -- Each stdout line has at minimum a "Rewritten" field (the recognized instruction).
-  -- On wake-up: extract Rewritten and execute it inline in the current session.
+  -- Arm persistent Monitor on voci serve --share.
+  -- The command merges stderr→stdout (2>&1) and grep-filters to three line types:
+  --   1. JSON event lines      (contain "rewritten") → voice instruction to execute
+  --   2. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
+  --   3. "Bearer token:   …"  (from stderr)         → auth token to display
+  -- On wake-up: classifyEvent decides whether to display or execute.
   -- The description carries a re-invoke hint for cross-/clear recovery.
   event: Monitor(persistent=true,
-           command="voci serve",
+           command="voci serve --share 2>&1 | grep --line-buffered -E '\"Rewritten\"|voci share URL|Bearer token'",
            description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"),
 
   if (stopSentinel()):
     return: Stopped,
 
-  instruction: extractInstruction(event),
-  -- Execute the instruction inline (not via sub-agent):
-  execute(instruction),
+  kind: classifyEvent(event),
+  | InfoMessage text → display(text),   -- show URL / token to user, do NOT execute
+  | VoiceEvent line  → execute(extractInstruction(line)),
+
   return: listenLoop(),   -- re-arm for the next event (voci serve is persistent)
 }
 
@@ -87,9 +99,15 @@ stopStaleMon() = {
   -- not as bash commands. Do NOT use shell process signals.
 }
 
+classifyEvent :: Line → EventKind
+classifyEvent(line) =
+  | line starts with "voci share URL:" → InfoMessage(line)
+  | line starts with "Bearer token:"   → InfoMessage(line)
+  | otherwise                          → VoiceEvent(line)
+
 extractInstruction :: Line → String
 extractInstruction(line) =
-  | line is valid JSON and has "Rewritten" field → line["Rewritten"]
+  | line is valid JSON and has "rewritten" field → line["rewritten"]
   | otherwise                                    → line   -- raw fallback
 
 ## Implementation
@@ -125,22 +143,38 @@ After `stopStaleMon` and the sentinel check, arm the persistent Monitor:
 
 ```
 Monitor(persistent=true,
-  command="voci serve",
+  command="voci serve --share 2>&1 | grep --line-buffered -E '\"Rewritten\"|voci share URL|Bearer token'",
   description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"
 )
 ```
 
-`voci serve` is the Monitor-host voice producer (TASK-16). It starts an HTTP listener for
-browser PTT uploads, runs the full ASR→hinted→rewrite→classify pipeline per utterance, and
-writes one JSON event line to stdout per recognized utterance. Monitor wakes up the session
-for each stdout line. As a Monitor sub-process, `voci serve` inherits the session's
-`CLAUDE_CODE_SESSION_ID` environment variable automatically.
+`voci serve --share` starts the HTTP listener, launches a Cloudflare Quick Tunnel, and
+writes the public URL and Bearer token to stderr. The `2>&1 | grep` pipeline routes
+stderr into stdout and filters down to three line patterns:
 
-### extractInstruction (per-line handler)
+| Pattern | Source | Action |
+|---|---|---|
+| `"rewritten"` | JSON event (stdout) | extract Rewritten → execute inline |
+| `voci share URL` | stderr startup line | display to user |
+| `Bearer token` | stderr startup line | display to user |
 
-On each Monitor wake-up, the event payload is the raw line emitted by `voci serve` on stdout.
-Extracts the `Rewritten` field from the JSON (`rewritten` key in the Event struct); falls back to
-the raw line if the JSON is invalid or the field is empty.
+### classifyEvent (per-line handler)
+
+On each Monitor wake-up, classify the line before acting:
+
+```
+if line starts with "voci share URL:" or "Bearer token:":
+    # Startup info — display directly to the user
+    print(line)
+    re-arm (continue listenLoop)
+else:
+    # Voice event — extract instruction and execute
+    INSTRUCTION = extractInstruction(line)
+    execute(INSTRUCTION)
+    re-arm
+```
+
+### extractInstruction (JSON extraction)
 
 ```bash
 LINE="$1"   # raw line from voci serve stdout

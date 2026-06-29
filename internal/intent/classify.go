@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yalehu/voci/internal/ollama"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 type classifyResponse struct {

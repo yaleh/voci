@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/yalehu/voci/internal/config"
+	"github.com/yaleh/voci/internal/config"
 )
 
 const apiURL = "https://api.siliconflow.cn/v1/audio/speech"

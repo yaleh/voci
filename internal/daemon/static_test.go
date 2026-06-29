@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 // Phase A: static resource serving via go:embed + FileServerFS
@@ -206,6 +208,117 @@ func TestEmbeddedIndex_HasTokenInputUI(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "voci-token") {
 		t.Error("index.html missing voci-token element")
+	}
+}
+
+// TestEmbeddedRecorder_SendTextRendersLocalMessages verifies that sendText()
+// re-renders the dialogue immediately after updating localMessages, without
+// waiting for hint changes from /api/context. The fix is that sendText() must
+// call renderContext(lastHint) directly after pushing to localMessages.
+func TestEmbeddedRecorder_SendTextRendersLocalMessages(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	body := string(data)
+	idx := strings.Index(body, "function sendText")
+	if idx < 0 {
+		t.Fatal("sendText function not found in recorder.js")
+	}
+	// Find the end of sendText (next top-level function or closing brace pattern)
+	fnBody := body[idx:min(len(body), idx+1100)]
+	// sendText must call renderContext after updating localMessages so the
+	// dialogue updates immediately — not deferred behind a hint-change guard.
+	if !strings.Contains(fnBody, "renderContext") {
+		t.Errorf("sendText() does not call renderContext() after updating localMessages; "+
+			"dialogue will not update when hint is unchanged.\nFunction body: %q", fnBody)
+	}
+}
+
+// TestSkillGrepPatternMatchesEventJSON is the contract test that bit us:
+// the voci-listen skill grep pattern must use the lowercase key "rewritten"
+// (the actual json tag on Event.Rewritten), not "Rewritten" (uppercase).
+// When the case is wrong the grep filter never matches and the Monitor is silent.
+func TestSkillGrepPatternMatchesEventJSON(t *testing.T) {
+	skillPath := filepath.Join("..", "..", ".claude", "skills", "voci-listen", "SKILL.md")
+	data, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Skipf("SKILL.md not accessible from test path (%s): %v", skillPath, err)
+	}
+	body := string(data)
+	if strings.Contains(body, `"Rewritten"`) {
+		t.Error(`voci-listen SKILL.md grep pattern contains "Rewritten" (uppercase R); ` +
+			`Event JSON key is "rewritten" (lowercase) — Monitor will never fire`)
+	}
+	if !strings.Contains(body, `"rewritten"`) {
+		t.Error(`voci-listen SKILL.md does not contain '"rewritten"' in grep pattern; ` +
+			`Monitor will not match events emitted by /api/voice/emit`)
+	}
+}
+
+// TestEmbeddedIndex_OverlayIsOpaque verifies the token-setup overlay uses a fully
+// opaque background so that session content cannot bleed through when auth is required
+// (--share mode exposes the server over Cloudflare; semi-transparent overlay leaks context).
+func TestEmbeddedIndex_OverlayIsOpaque(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatalf("read web/index.html: %v", err)
+	}
+	if strings.Contains(string(data), "rgba(0,0,0,0.7)") {
+		t.Error("token overlay uses semi-transparent background rgba(0,0,0,0.7); must be fully opaque to prevent session content bleed-through in --share mode")
+	}
+}
+
+// TestEmbeddedRecorder_AuthRequiredFlag verifies recorder.js maintains an
+// authRequired state variable that is set when the server probes with 401.
+func TestEmbeddedRecorder_AuthRequiredFlag(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	body := string(data)
+	if !strings.Contains(body, "authRequired") {
+		t.Error("recorder.js missing authRequired state variable; required to block API calls when server demands Bearer token")
+	}
+	if !strings.Contains(body, "401") {
+		t.Error("recorder.js does not check for HTTP 401 response; required for auth probe on init")
+	}
+}
+
+// TestEmbeddedRecorder_RefreshContextGuardedByAuth verifies refreshContext() bails
+// out early when auth is required but no token is stored, preventing data from being
+// loaded and rendered into the DOM behind the overlay.
+func TestEmbeddedRecorder_RefreshContextGuardedByAuth(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	body := string(data)
+	idx := strings.Index(body, "function refreshContext")
+	if idx < 0 {
+		t.Fatal("refreshContext function not found in recorder.js")
+	}
+	fnBody := body[idx:min(len(body), idx+400)]
+	if !strings.Contains(fnBody, "authRequired") {
+		t.Errorf("refreshContext() does not check authRequired before fetching; session data will load behind the auth overlay.\nFunction body (first 400 chars): %q", fnBody)
+	}
+}
+
+// TestEmbeddedRecorder_SaveTokenKickstartsPolling verifies that saveToken() calls
+// refreshContext() so context polling starts as soon as the user enters the token.
+func TestEmbeddedRecorder_SaveTokenKickstartsPolling(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	body := string(data)
+	idx := strings.Index(body, "function saveToken")
+	if idx < 0 {
+		t.Fatal("saveToken function not found in recorder.js")
+	}
+	fnBody := body[idx:min(len(body), idx+400)]
+	if !strings.Contains(fnBody, "refreshContext") {
+		t.Errorf("saveToken() does not call refreshContext() after token is saved; polling will not start after auth.\nFunction body (first 400 chars): %q", fnBody)
 	}
 }
 

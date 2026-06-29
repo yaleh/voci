@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/gate"
-	"github.com/yalehu/voci/internal/intent"
+	"github.com/yaleh/voci/internal/gate"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 // Phase A tests

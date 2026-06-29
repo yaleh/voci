@@ -9,9 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/yalehu/voci/internal/intent"
-	"github.com/yalehu/voci/internal/ollama"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/ollama"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 // TestE2E_HappyPath_FullPipeline tests the full pipeline end-to-end via HTTP.

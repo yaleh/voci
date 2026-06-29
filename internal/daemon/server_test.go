@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/intent"
-	"github.com/yalehu/voci/internal/pipeline"
+	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/pipeline"
 )
 
 func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yalehu/voci/internal/executor"
-	"github.com/yalehu/voci/internal/intent"
+	"github.com/yaleh/voci/internal/executor"
+	"github.com/yaleh/voci/internal/intent"
 )
 
 // --- Phase A ---

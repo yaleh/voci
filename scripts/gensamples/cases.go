@@ -11,6 +11,11 @@ type TestCase struct {
 	RawASR           string   `json:"raw_asr"`
 	ExpectedHinted   string   `json:"expected_hinted"`
 	ExpectedEntities []string `json:"expected_entities"`
+	Voice            string   `json:"voice"`
+	Language         string   `json:"language"`
+	Category         []string `json:"category"`
+	KnownEntities    []string `json:"known_entities"`
+	Reference        string   `json:"reference"`
 }
 
 func LoadCases(path string) ([]TestCase, error) {

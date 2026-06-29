@@ -4,7 +4,7 @@ title: ASR 文本提示策略实验：中英混合语音识别效果评估
 status: 'Basic: Backlog'
 assignee: []
 created_date: '2026-06-29 00:12'
-updated_date: '2026-06-29 00:21'
+updated_date: '2026-06-29 11:25'
 labels:
   - 'kind:basic'
   - 'area:research'
@@ -16,26 +16,34 @@ ordinal: 24000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-探索更有效的文本提示和语音识别方案。当前管线为英文场景设计，Known Entities 依赖 TASK-N 映射（来自 backlog.md，不具通用性）；实际用户输入 82% 含中文，ASR 模型为 TeleSpeechASR（中文专用，无 prompt 参数）。
+探索 Gemini-2.5-flash（生产 ASR，ADR-001）在中英混合语音场景下的最优 hint 格式。TASK-40 已确定 Gemini-2.5-flash 为生产 ASR，hinted 模式 entity_recall_exact=0.643（+0.357 vs baseline）。本实验的核心问题从"选哪个 ASR"转变为"什么样的 hint 内容与格式能让 Gemini entity_recall 突破 0.643"。
 
-关键发现（来自 meta-cc 会话记录分析）：
-- 真实输入是中英混合：中文指令 + 嵌入英文技术术语（loop-backlog, meta-cc, voci, CLI flags 等）
-- 现有 testcases.json 全为合成英文，与真实用法不符
-- RunHinted 接收全量 hint，但其 prompt 只用 Known Entities 段；其余段落是噪声
-- 每次识别串行 3 次 LLM 调用（RunHinted + Rewrite + Classify），延迟高
-- TASK-N 口语映射不应作为通用方案
+TASK-40 关键基线（35 样本，全量 zh-technical + zh-mixed）：
+- gemini-2.5-flash/baseline: entity_recall_exact=0.286, WER=0.705
+- gemini-2.5-flash/hinted（plain text entity list）: entity_recall_exact=0.643, WER=0.619
+- 当前 hint 格式：已知实体纯文本列表注入 prompt，无结构化标记，无明确指令
+
+真实用户输入特征（来自 meta-cc 会话分析）：
+- 82% 含中文，嵌入英文技术术语（loop-backlog, meta-cc, voci, CLI flags, TASK-N 等）
+- 当前测试语料全为合成英文，与真实用法不符
+- 每次识别串行 3 次 LLM 调用（RunHinted + Rewrite + Classify），Gemini 替换后延迟模型变化
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-// Plan: ASR 文本提示策略实验：中英混合语音识别效果评估
+// Plan: ASR Hint Format 实验 — Gemini-2.5-flash 中英混合语音（基于 TASK-40 结果更新）
 
 ## Context
-Current voci ASR pipeline was designed for English and relies on a TASK-N–specific "Known Entities" mapping that is not generalizable. Real user messages are 82% Chinese mixed with embedded English technical terms (loop-backlog, meta-cc, voci, CLI flags), yet the only test corpus is synthetic English. This experiment benchmarks alternative hint-content strategies and, conditionally, alternative ASR models to find the configuration that best preserves embedded technical terms after transcription and rewrite.
+
+TASK-40 已将生产 ASR 切换为 Gemini-2.5-flash（ADR-001）并确立基线：plain text entity list hint 使 entity_recall_exact 从 0.286 提升至 0.643（+0.357）。本实验在此基线之上，通过系统测试 4 种 hint 格式变体，找出能进一步提升 entity_recall 的最优表达方式。实验不修改 Go 生产代码，输出独立 Python 脚本与报告。
 
 ## Phase 1: 代表性中文语料库构建
-Instructions: Use meta-cc MCP tool to query user messages from voci and baime projects. Filter: length 10-80 chars, contains at least one technical term (regex: loop-backlog|meta-cc|voci|feature-to-backlog|backlog\.md|--[a-z]|/[a-z]+/). Exclude system-injected messages and skill invocations. Write filtered candidates to docs/research/asr-corpus-candidates.jsonl (fields: text, source_project, timestamp). Then annotate 30 entries: mark expected_entities (technical terms that must survive transcription), expected_rewrite (clean instruction). Write annotated corpus to docs/research/asr-test-corpus.jsonl.
+
+使用 meta-cc MCP 工具查询 voci 和 baime 项目的用户消息。过滤条件：长度 10-80 字符，包含至少一个技术术语（regex: `loop-backlog|meta-cc|voci|feature-to-backlog|backlog\.md|--[a-z]|/[a-z]+/|TASK-\d`）。排除系统注入消息与 skill 调用。写入 `docs/research/asr-corpus-candidates.jsonl`（字段：text, source_project, timestamp）。
+
+从中标注 30 条：标记 `expected_entities`（必须在转录后保留的技术术语）、`expected_rewrite`（干净指令文本）。写入 `docs/research/asr-test-corpus.jsonl`。用 edge-tts（voice: zh-CN-XiaoxiaoNeural）为每条生成 WAV 文件。
+
 ### DoD
 - [ ] `[ $(wc -l < docs/research/asr-corpus-candidates.jsonl) -ge 50 ]`
 - [ ] `grep -q '"text"' docs/research/asr-corpus-candidates.jsonl`
@@ -43,13 +51,33 @@ Instructions: Use meta-cc MCP tool to query user messages from voci and baime pr
 - [ ] `grep -q '"expected_entities"' docs/research/asr-test-corpus.jsonl`
 - [ ] `grep -q '"expected_rewrite"' docs/research/asr-test-corpus.jsonl`
 
-## Phase 2: 管线配置基准测试（A/B/C/D）
-Instructions: Implement a test harness script at docs/research/asr-experiment/run_experiment.py. For each test entry in asr-test-corpus.jsonl, synthesize audio using edge-tts (voice zh-CN-XiaoxiaoNeural for Chinese text; do not reuse existing WAV files). Run 4 pipeline configurations against each synthesized WAV:
-  A — current: RunHinted(full hint) + Rewrite(Known Entities only)
-  B — stripped: RunHinted(Known Entities only) + Rewrite(Known Entities only)
-  C — dialogue-first: RunHinted(Known Entities + last 1 dialogue turn) + Rewrite(Known Entities only)
-  D — merged: single LLM call combining RunHinted+Rewrite (Known Entities + last 1 dialogue turn)
-For each result, record: config, test_id, raw_asr, hinted, rewritten, entity_hit_rate (fraction of expected_entities present in rewritten), latency_ms, tokens_used. Append to docs/research/asr-experiment-results.jsonl.
+## Phase 2: Gemini Hint Format 基准测试（Config A/B/C/D）
+
+实现测试脚手架 `docs/research/asr-experiment/run_experiment.py`。对每条测试用例，调用 Gemini-2.5-flash Audio API，测试 4 种 hint 格式：
+
+**A（基线，TASK-40 格式）**：将 known_entities 纯文本列表注入 prompt，无特殊标记，无明确指令。此 config 应复现 TASK-40 的 0.643 entity_recall_exact。
+
+**B（XML 结构化 + 明确指令）**：使用 XML 标签包裹实体列表，并在 prompt 开头加明确指令：
+```
+Transcribe the audio. Preserve ALL technical terms listed below EXACTLY as spelled (case-sensitive):
+<entities>voci, TASK-1, loop-backlog, ...</entities>
+```
+
+**C（Few-shot 示例）**：在 prompt 中提供一条人工标注的示例，展示正确的实体保留行为：
+```
+Example: Audio says "修复 voci 的登录 bug" → Transcript: "修复 voci 的登录 bug"
+Known terms: [voci, TASK-1, ...]
+Transcribe:
+```
+
+**D（Instruction-first，中文指令）**：用中文写明确指令，再给实体列表：
+```
+请将音频转录为文字。以下技术术语必须原样保留（区分大小写）：
+voci, TASK-1, loop-backlog, ...
+```
+
+每条结果记录：`config`, `test_id`, `raw_transcript`, `entity_hit_rate`（expected_entities 中出现在转录文本的比例，大小写不敏感子串匹配）, `latency_ms`, `prompt_tokens`。追加到 `docs/research/asr-experiment-results.jsonl`。
+
 ### DoD
 - [ ] `grep -q 'run_experiment\|def ' docs/research/asr-experiment/run_experiment.py`
 - [ ] `grep -q '"config":"A"' docs/research/asr-experiment-results.jsonl`
@@ -59,14 +87,26 @@ For each result, record: config, test_id, raw_asr, hinted, rewritten, entity_hit
 - [ ] `[ $(grep -c '"config"' docs/research/asr-experiment-results.jsonl) -ge 100 ]`
 - [ ] `grep -q '"entity_hit_rate"' docs/research/asr-experiment-results.jsonl`
 
-## Phase 3: Whisper 模型対比（探索性）
-Instructions: Compute mean entity_hit_rate for config A from asr-experiment-results.jsonl. If it is below 0.8, run Phase 3: test Whisper large-v3 via SiliconFlow API (model: "FunAudioLLM/SenseVoiceSmall" or "openai/whisper-large-v3" if available). Add config E (Whisper, no prompt) and config F (Whisper + initial_prompt containing top-20 project vocab). Extend run_experiment.py with --whisper flag. Append results to asr-experiment-results.jsonl. If mean entity_hit_rate for config A is >= 0.8, skip Phase 3 and write a one-line file docs/research/asr-experiment/phase3-skipped.txt explaining why.
+## Phase 3: SKIPPED — 替代模型对比已在 TASK-40 完成
+
+TASK-40 已完成 Whisper large-v3-turbo、Qwen3-ASR-Flash、GPT-4o-transcribe 与 Gemini 的全面对比，Gemini-2.5-flash 为最优选择（ADR-001）。本阶段直接跳过，写入跳过说明文件。
+
+写入 `docs/research/asr-experiment/phase3-skipped.txt`，内容：`Skipped: alternative ASR model comparison completed in TASK-40. Gemini-2.5-flash selected as production ASR (ADR-001). entity_recall_exact: flash/hinted=0.643 vs whisper=0.286 vs qwen3=0.214.`
+
 ### DoD
 - [ ] `{ test -f docs/research/asr-experiment/phase3-skipped.txt && grep -q '.' docs/research/asr-experiment/phase3-skipped.txt; } || grep -q '"config":"E"' docs/research/asr-experiment-results.jsonl`
 - [ ] `{ test -f docs/research/asr-experiment/phase3-skipped.txt && grep -q '.' docs/research/asr-experiment/phase3-skipped.txt; } || grep -q '"config":"F"' docs/research/asr-experiment-results.jsonl`
 
 ## Phase 4: 结果分析与建议
-Instructions: Write a Python analysis script at docs/research/asr-experiment/analyze.py that reads asr-experiment-results.jsonl and produces: (1) per-config mean entity_hit_rate and mean latency_ms table, (2) breakdown by entity type (tool-name vs. CLI-flag vs. TASK-id), (3) recommendation section identifying the best config. Run the script and write its output to docs/research/asr-experiment-report.md.
+
+编写 `docs/research/asr-experiment/analyze.py`，读取 `asr-experiment-results.jsonl`，输出：
+1. 每个 config 的 mean entity_hit_rate 与 mean latency_ms 对比表
+2. 按实体类型分类（tool-name / CLI-flag / TASK-id）的 entity_hit_rate 分布
+3. 与 TASK-40 基线（Config A 应复现 0.643）的 delta 对比
+4. Recommendation 段：最优 config 及建议是否推进到生产
+
+运行脚本，输出写入 `docs/research/asr-experiment-report.md`。
+
 ### DoD
 - [ ] `grep -q 'entity_hit_rate' docs/research/asr-experiment/analyze.py`
 - [ ] `grep -q '## Recommendation' docs/research/asr-experiment-report.md`
@@ -74,11 +114,11 @@ Instructions: Write a Python analysis script at docs/research/asr-experiment/ana
 - [ ] `grep -q 'latency_ms' docs/research/asr-experiment-report.md`
 
 ## Constraints
-- Do NOT modify production pipeline code during this experiment
-- Do NOT treat TASK-N as a special or universal entity class; include it only as one among many entity types
-- Audio generation (TTS) for Chinese mixed-language input is required; use edge-tts, do not reuse existing WAV files
-- Phase 3 is conditional: run only if Phase 2 mean entity_hit_rate for config A < 0.8; record the decision either way
-- The experiment measures quality of the HINT CONTENT, not the ASR model accuracy in isolation
+- 不修改任何 Go 生产代码（`internal/` 只读引用）
+- 使用 Gemini Audio API（`docs/research/model-eval/adapters/gemini.py` 可参考）；不使用 Ollama
+- Config A 必须复现 TASK-40 的 hinted 格式（以验证实验可重复性）；若 Config A 结果偏差 >0.05，先排查后继续
+- Phase 3 直接跳过，写 phase3-skipped.txt
+- TTS 音频用 edge-tts 生成；不复用已有 WAV 文件
 
 ## Acceptance Gate
 - [ ] `grep -q '## Recommendation' docs/research/asr-experiment-report.md`
@@ -90,7 +130,7 @@ Instructions: Write a Python analysis script at docs/research/asr-experiment/ana
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Plan review iteration 4: APPROVED
+Plan updated post-TASK-40: production ASR is now Gemini-2.5-flash (ADR-001). Experiment reanchored to Gemini hint FORMAT optimization (A/B/C/D = plain-text/XML/few-shot/instruction-first). Phase 3 (model comparison) skipped — already completed in TASK-40. Config A baseline should reproduce TASK-40 hinted entity_recall_exact=0.643.
 
 cap:propose=approved
 <!-- SECTION:NOTES:END -->

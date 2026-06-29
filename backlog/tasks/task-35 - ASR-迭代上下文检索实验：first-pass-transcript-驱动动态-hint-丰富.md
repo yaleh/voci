@@ -4,7 +4,7 @@ title: ASR 迭代上下文检索实验：first-pass transcript 驱动动态 hint
 status: 'Basic: Backlog'
 assignee: []
 created_date: '2026-06-29 04:06'
-updated_date: '2026-06-29 04:19'
+updated_date: '2026-06-29 11:26'
 labels:
   - 'kind:basic'
   - 'area:asr'
@@ -16,28 +16,39 @@ ordinal: 30000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-当前 voci pipeline 的 hint 在转录之前静态构建，无法利用当前 utterance 的语义信号。本实验验证：将 first-pass raw transcript 作为检索查询，动态丰富 hint（从 backlog、codebase symbol 等来源），再用 enriched hint 进行二次纠错，是否能改善中英混合语音的实体召回率。依赖 TASK-34 的基准数据确定基线。
+验证"两阶段 ASR 流水线"：用本地 gemma4（快速低成本，0.9s，entity_recall=0.286）做 first-pass 粗识别，将 raw transcript 作为检索查询动态丰富 hint（从 backlog、codebase symbol 等来源），再用 Gemini-2.5-flash（生产 ASR，ADR-001）+ enriched hint 进行二次精转录，验证 entity_recall 能否超越 TASK-40 建立的 Gemini/hinted 基线（0.643）。
+
+TASK-40 关键基线（本实验对照数据）：
+- gemma4 local only: entity_recall_exact=0.286, latency=0.9s（round 0 基准）
+- gemini-2.5-flash/hinted（静态 hint）: entity_recall_exact=0.643（round 1 目标上限）
+- 实验成功标准：avg_r1 > 0.643（动态 enriched hint 超越静态 hint）
+
+本实验不修改 Go 生产代码，输出独立 Python prototype 与分析报告。
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-# Plan: ASR 迭代上下文检索实验：first-pass transcript 驱动动态 hint 丰富
+// Plan: 两阶段 ASR 流水线实验 — gemma4 first-pass + Gemini enriched second-pass（基于 TASK-40 结果更新）
 
 ## Context
 
-当前 voci pipeline 在转录前静态构建 hint（`internal/context/builder.go`），hint 包含已知实体但不知道当前话语的主题，导致低频或未被 source 覆盖的实体无法被纠正。本实验提出"迭代 ASR"：用嘈杂的 first-pass raw transcript 作为搜索 query，动态检索相关 backlog 任务与代码符号，将结果追加到 enriched_hint 后再次运行 `RunHinted`，验证 entity_recall 是否显著提升。实验依赖 TASK-34 建立的 asr-bench 基线指标（entity_recall @ static_hint）作为对照组，本实验不修改 Go 生产代码，输出为独立 Python prototype。
+TASK-40 证明 Gemini-2.5-flash 对 hint 高度响应（entity_recall +0.357），同时 gemma4 local 具备快速粗识别能力（0.9s, entity_recall=0.286）。本实验提出的两阶段架构：① gemma4 local 做 first-pass（廉价、快速，得到含噪 raw transcript）→ ② 用 raw transcript 作为检索 query 动态丰富 hint → ③ Gemini-2.5-flash + enriched hint 做 second-pass 精转录。若 avg_r1 > 0.643（TASK-40 静态 hint 基线），则说明动态 hint 带来增量价值，架构值得推进到生产。
 
-## Phase 1: Scaffold — 搭建实验脚手架与静态基线复现
+依赖 TASK-34 的 testcases.json 语料；基线数字引用 TASK-40（不重新跑 TASK-34）。
+
+## Phase 1: Scaffold — 搭建实验脚手架与 gemma4 静态基线复现
 
 在 `docs/research/iterative-asr/` 下创建实验目录及核心脚本骨架：
 
 - `run_experiment.py`：主入口，接收 WAV 路径 + base_hint 字符串，运行完整实验流程并将结果写入 `results.jsonl`
 - `searcher.py`：独立检索模块，暴露 `search(query: str, repo_root: str) -> str` 接口；Phase 2 实现具体搜索逻辑，此阶段仅提供 stub（返回空字符串）
-- `metrics.py`：`entity_recall(expected: list[str], hinted: str) -> float`，与 TASK-34 asr-bench 保持一致的计算方式（大小写不敏感子串匹配）
-- `conftest.json`：记录实验超参数（`max_rounds`, `ollama_model`, `ollama_url`, `repo_root`）
+- `metrics.py`：`entity_recall(expected: list[str], hinted: str) -> float`，大小写不敏感子串匹配，与 TASK-34/40 asr-bench 保持一致
+- `conftest.json`：记录实验超参数（`max_rounds`, `ollama_model`, `ollama_url`, `gemini_model`, `repo_root`）
 
-脚本从 `testdata/testcases.json` 读取 `expected_entities`，对 `sample-01` 到 `sample-15` 的每条有 wav 文件的用例执行静态基线（round=0，直接用 base_hint 调用 RunHinted 等效逻辑），将 `{id, round, entity_recall, hinted_text, latency_s}` 逐行追加到 `results.jsonl`。
+脚本从 `testdata/testcases.json` 读取 `expected_entities`，对 `sample-01` 到 `sample-15` 的每条有 wav 文件的用例执行 **round=0 基线**：调用 gemma4 local（Ollama）直接转录，使用 base_hint（不搜索），计算 entity_recall。将 `{id, round, entity_recall, transcript, latency_s}` 逐行追加到 `results.jsonl`。
+
+Round 0 预期数字参考 TASK-40：gemma4 entity_recall≈0.286。
 
 ### DoD
 - [ ] `grep -q 'def main\|import\|results.jsonl' docs/research/iterative-asr/run_experiment.py`
@@ -50,26 +61,20 @@ ordinal: 30000
 
 实现 `searcher.py` 中的两条检索路径：
 
-**路径 A — Backlog 任务标题/描述模糊匹配**
-将 `backlog/tasks/*.md` 的标题与首段描述加载为候选语料，对 first-pass transcript 按词分词后做 token 级 Jaccard 相似度匹配（阈值 ≥ 0.15），返回命中任务的 ID + 标题行（不超过 5 条），格式 `TASK-N: <title>`。
+**路径 A — Backlog 任务标题/描述模糊匹配**：将 `backlog/tasks/*.md` 的标题与首段描述加载为候选语料，对 first-pass transcript 按词分词后做 token 级 Jaccard 相似度匹配（阈值 ≥ 0.15），返回命中任务的 ID + 标题行（不超过 5 条），格式 `TASK-N: <title>`。
 
-**路径 B — 代码符号 grep**
-提取 transcript 中长度 ≥ 5 个字符的驼峰单词与路径片段（`re.findall(r'[A-Z][a-z]+[A-Za-z]+|[a-z]+/[a-z]+', text)`），对每个 token 在 `repo_root` 下执行 `grep -r --include='*.go' -l <token>`，去重后返回命中文件的包路径（`internal/xxx`），不超过 10 条。
+**路径 B — 代码符号 grep**：提取 transcript 中长度 ≥ 5 个字符的驼峰单词与路径片段（`re.findall(r'[A-Z][a-z]+[A-Za-z]+|[a-z]+/[a-z]+', text)`），对每个 token 在 `repo_root` 下执行 `grep -r --include='*.go' -l <token>`，去重后返回命中文件的包路径（`internal/xxx`），不超过 10 条。
 
-**噪声容忍**：若 transcript 为空或全为汉字（`re.fullmatch(r'[一-鿿\s，。？！]+', transcript)`），两条路径均跳过并返回空字符串，不报错。
+**噪声容忍**：若 transcript 为空或全为汉字（`re.fullmatch(r'[一-鿿\s，。？！]+', transcript)`），两条路径均跳过返回空字符串。
 
-`search()` 将路径 A + 路径 B 的结果拼装为 hint 追加片段，格式：
-
+`search()` 输出格式：
 ```
 ## Dynamic Context (from first-pass transcript)
 ### Matching Tasks
 TASK-N: <title>
-...
 ### Matching Symbols
 internal/xxx
-...
 ```
-
 若两条路径均无结果，返回空字符串。
 
 ### DoD
@@ -78,17 +83,23 @@ internal/xxx
 - [ ] `python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('把这个修一下好吧', '.'); assert r == ''"`
 - [ ] `python3 -c "import sys; sys.path.insert(0,'docs/research/iterative-asr'); from searcher import search; r=search('RunHinted pipeline', '.'); assert isinstance(r, str)"`
 
-## Phase 3: Iterative Loop — 接入迭代并记录 enriched_hint 结果
+## Phase 3: Iterative Loop — gemma4 first-pass → Gemini enriched second-pass
 
 在 `run_experiment.py` 中为每条测试用例扩展迭代循环（max_rounds=2）：
 
-1. **Round 1**：调用 gemma4 first-pass transcription（复用 `docs/research/gemma4-asr-test.py` 的 `transcribe()` 逻辑），得到 `raw_r1`；调用 `search(raw_r1, repo_root)` 得到动态片段；构建 `enriched_hint = base_hint + "\n" + dynamic_snippet`；调用 RunHinted 等效（Ollama chat，system prompt 与 `internal/pipeline/pipeline.go:RunHinted` 保持一致）得到 `hinted_r1`；计算 entity_recall；写入 `results.jsonl` 中 `round=1` 行。
+**Round 1**：
+1. 调用 gemma4 local（Ollama）做 first-pass 转录，得到 `raw_r1`（含噪）
+2. 调用 `search(raw_r1, repo_root)` 得到 `dynamic_snippet`
+3. 构建 `enriched_hint = base_hint + "\n" + dynamic_snippet`
+4. 调用 **Gemini-2.5-flash Audio API**（参考 `docs/research/model-eval/adapters/gemini.py`），将 `enriched_hint` 注入 prompt，得到 `transcript_r1`
+5. 计算 `entity_recall(expected_entities, transcript_r1)`
+6. 写入 `results.jsonl`：`{id, round: 1, entity_recall, transcript, dynamic_snippet_len, latency_s}`
 
-2. **Round 2（条件触发）**：仅当 round 1 的 entity_recall < 1.0 时执行；以 `hinted_r1` 作为新 query 再次 `search()`，构建 `enriched_hint_r2`，再次 RunHinted 得到 `hinted_r2`；计算 entity_recall；写入 `round=2` 行；若 round 1 已满分则直接写 `round=2, skipped=true`。
+**Round 2（条件触发）**：仅当 round 1 entity_recall < 1.0 时执行；以 `transcript_r1` 作为新 query 再次 `search()`，构建 `enriched_hint_r2`，再次调用 Gemini API 得到 `transcript_r2`；计算 entity_recall；写入 `round=2` 行。若 round 1 已满分则写 `{round: 2, skipped: true}`。
 
-3. 所有用例完成后，在 `results.jsonl` 末尾追加一行 `{"summary": true, ...}`，包含三组平均 entity_recall：`avg_r0`（静态基线）、`avg_r1`、`avg_r2`，以及对应的 `avg_latency_r0`、`avg_latency_r1`、`avg_latency_r2`。
+**汇总行**：所有用例完成后追加 `{"summary": true, "avg_r0": ..., "avg_r1": ..., "avg_r2": ..., "avg_latency_r0": ..., "avg_latency_r1": ..., "avg_latency_r2": ...}`。
 
-超时 120s 的用例记录 `error: timeout`，不中断整体实验；`expected_entities` 为空的用例（如 sample-04）跳过 entity_recall 计算，不计入平均值。
+超时 120s 的用例记录 `error: timeout`，不中断整体。`expected_entities` 为空的用例跳过 entity_recall 计算，不计入平均值。
 
 ### DoD
 - [ ] `python3 -c "import json,pathlib; rows=[json.loads(l) for l in pathlib.Path('docs/research/iterative-asr/results.jsonl').read_text().strip().splitlines()]; assert any(r.get('round')==1 for r in rows), 'no round-1 rows'"`
@@ -100,11 +111,13 @@ internal/xxx
 
 读取 `results.jsonl`，生成 `docs/research/iterative-asr/analysis.md`，内容包含：
 
-- **对比表**：每条测试用例的 entity_recall @ r0 / r1 / r2 及各轮 latency_s（Markdown 表格）
-- **汇总行**：avg_r0、avg_r1、avg_r2 及各自的 avg_latency_s
+- **对比表**：每条测试用例的 entity_recall @ r0 / r1 / r2 及各轮 latency_s
+- **汇总行**：avg_r0、avg_r1、avg_r2 及各自 avg_latency_s
 - **Δ 分析**：r1 - r0（动态检索增益）、r2 - r1（第二轮边际增益）
-- **噪声命中率**：round 1 中 `search()` 返回非空字符串的用例占比（检索有效率）
-- **结论**：依据 Δ(r1-r0) ≥ 0.1 且噪声命中率 ≥ 50% 则给出"可工程化"结论，否则给出"收益不足，建议放弃迭代路径"结论
+- **TASK-40 对比**：avg_r1 vs TASK-40 Gemini/hinted 基线（0.643）的 delta
+- **噪声命中率**：round 1 中 `search()` 返回非空的用例占比
+- **延迟分析**：two-stage 总延迟（gemma4 + Gemini）vs 单次 Gemini
+- **结论**：若 avg_r1 > 0.643 且噪声命中率 ≥ 50% → "可工程化"；否则 → "收益不足，建议放弃迭代路径"
 
 ### DoD
 - [ ] `grep -q 'avg_r0' docs/research/iterative-asr/analysis.md`
@@ -117,11 +130,11 @@ internal/xxx
 ## Constraints
 
 - 不修改任何 Go 生产代码（`internal/` 下文件只读引用）
-- Python prototype 不依赖第三方库（仅 stdlib）；Ollama 通过 `urllib.request` 调用
-- 实验结果文件仅写入 `docs/research/iterative-asr/`，不写入 `testdata/`
-- max_rounds 硬编码为 2，不做自动收敛循环（避免无界实验时长）
-- 单用例超时 120s（复用 `docs/research/gemma4-asr-test.py` 的 timeout 设置），超时记录 `error: timeout`，不中断整体实验
+- Round 0：gemma4 via Ollama（cheap first-pass）；Round 1/2：Gemini-2.5-flash Audio API（参考 `docs/research/model-eval/adapters/gemini.py`）
+- Python prototype 调用 Gemini API 通过 `urllib.request` 或直接复用 gemini adapter；Ollama 通过 `urllib.request`
+- max_rounds 硬编码为 2；单用例超时 120s
 - 实验结论不自动触发生产代码变更，需人工审查 `analysis.md` 后决策
+- 成功标准：avg_r1 > 0.643（超越 TASK-40 Gemini 静态 hint 基线）
 
 ## Acceptance Gate
 
@@ -135,7 +148,7 @@ internal/xxx
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-Plan review iteration 4: APPROVED
+Plan updated post-TASK-40: second-pass model changed from Ollama/local to Gemini-2.5-flash Audio API. Round 0 baseline = gemma4 local (entity_recall≈0.286, TASK-40 reference). Success target = avg_r1 > 0.643 (exceeds TASK-40 static hint baseline). Reference adapter: docs/research/model-eval/adapters/gemini.py.
 
 cap:propose=approved
 <!-- SECTION:NOTES:END -->

@@ -1,16 +1,16 @@
 ---
 id: TASK-44
 title: ASR pipeline merge 联合实验：Config C few-shot hint + 单次 Gemini 调用
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-29 13:53'
-updated_date: '2026-06-29 13:59'
+updated_date: '2026-06-29 15:00'
 labels:
   - 'kind:basic'
   - 'area:asr'
   - 'area:research'
 dependencies: []
-ordinal: 33000
+ordinal: 1000
 ---
 
 ## Description
@@ -111,7 +111,36 @@ N/A for research — output file checks serve as tests.
 <!-- SECTION:NOTES:BEGIN -->
 Plan review iteration 1: APPROVED
 GCL-self-report: E=4 C=1 H=1
+
+claimed: 2026-06-29T14:47:13Z
+
+Phase 1 ✓ 2026-06-29T00:00:00Z
+Generated missing WAVs with edge_tts; all 35 cases now have audio
+
+Phase 2 ✓ 2026-06-29T00:01:00Z
+merged_prompt_v2.txt created with Config C few-shot; run_experiment_v2.py created
+
+Phase 3 ✓ 2026-06-29T00:10:00Z
+results_v2.jsonl generated (35 rows, 0 parse_error); analyze_v2.py + report_v2.md written
+Result: 质量损失不可接受，保留三段流水线
+- rewrite_entity_recall: 0.8857 (+0.2857 vs baseline)
+- classify_accuracy: 0.5429 (-0.0857 vs baseline, fails -0.05 threshold)
+- latency: 8107ms (-26.1% vs baseline)
+
+## Execution Summary
+Result: Done
+Commit: 99bdebe30865e4c7e14689653f7efbfdc233f52e
+- Phase 1: 10 missing WAVs generated with edge_tts
+- Phase 2: merged_prompt_v2.txt (Config C few-shot) + run_experiment_v2.py
+- Phase 3: experiment run + analyze_v2.py + report_v2.md
+- All 7 DoD PASS
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+实验结论：Config C few-shot + 合并单次调用联合方案质量损失不可接受。classify_accuracy delta = -0.0857（阈值 -0.05）→ FAIL。rewrite_entity_recall +0.2857，latency -26.1%，但分类精度下降过多。保留三段流水线。产物：merged_prompt_v2.txt, results_v2.jsonl (35行/0 parse_error), report_v2.md, analyze_v2.py, run_experiment_v2.py。Commit: 99bdebe。
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->

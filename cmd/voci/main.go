@@ -171,7 +171,9 @@ func run(
 			return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
 		}
 		if transcribeFn == nil {
-			transcribeFn = asr.Transcribe
+			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
+				return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+			}
 		}
 		if hintedFn == nil {
 			hintedFn = pipeline.RunHinted
@@ -206,7 +208,7 @@ func run(
 				return serveHint(), nil
 			},
 			ChatFn:      chatFn,
-			APIKey:      cfg.SiliconFlowKey,
+			APIKey:      cfg.ASRAPIKey,
 			Language:    cfg.Language,
 			EventWriter: os.Stdout,
 			EventPath:   *eventsPathFlag,
@@ -246,7 +248,9 @@ func run(
 			return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
 		}
 		if transcribeFn == nil {
-			transcribeFn = asr.Transcribe
+			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
+				return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+			}
 		}
 		if hintedFn == nil {
 			hintedFn = pipeline.RunHinted
@@ -282,7 +286,7 @@ func run(
 				return buildHint(), nil
 			},
 			ChatFn:    chatFn,
-			APIKey:    cfg.SiliconFlowKey,
+			APIKey:    cfg.ASRAPIKey,
 			Language:  cfg.Language,
 			EventPath: eventsPath,
 		}
@@ -306,7 +310,9 @@ func run(
 				return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
 			}
 			if transcribeFn == nil {
-				transcribeFn = asr.Transcribe
+				transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
+					return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+				}
 			}
 			if hintedFn == nil {
 				hintedFn = pipeline.RunHinted
@@ -325,7 +331,7 @@ func run(
 					mcp.HintedFn(hintedFn),
 					mcp.RewriteFn(rewriteFnOpt),
 					mcp.ClassifyFn(classifyFn),
-					cfg.SiliconFlowKey,
+					cfg.ASRAPIKey,
 					chatFn,
 					hint,
 					cfg.Language,
@@ -365,7 +371,9 @@ func run(
 
 	// Use injected or default functions
 	if transcribeFn == nil {
-		transcribeFn = asr.Transcribe
+		transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string) string {
+			return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel)
+		}
 	}
 	if hintedFn == nil {
 		hintedFn = pipeline.RunHinted
@@ -397,7 +405,7 @@ func run(
 	}
 
 	// Stage 2: ASR transcription
-	raw := transcribeFn(ctx, cfg.SiliconFlowKey, *fileFlag, "", cfg.Language)
+	raw := transcribeFn(ctx, cfg.ASRAPIKey, *fileFlag, "", cfg.Language)
 
 	// Stage 3: Hinted correction
 	hinted, err := hintedFn(ctx, raw, hint, chatFn)

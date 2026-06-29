@@ -14,12 +14,20 @@ type Config struct {
 	SiliconFlowKey string
 	OllamaHost     string
 	Language       string
+	ASRProvider    string
+	ASRAPIKey      string
+	ASRAPIURL      string
+	ASRModel       string
 }
 
 type fileConfig struct {
 	SiliconFlowAPIKey string `yaml:"siliconflow_api_key"`
 	OllamaHost        string `yaml:"ollama_host"`
 	Language          string `yaml:"language"`
+	ASRProvider       string `yaml:"asr_provider"`
+	ASRAPIKey         string `yaml:"asr_api_key"`
+	ASRAPIURL         string `yaml:"asr_api_url"`
+	ASRModel          string `yaml:"asr_model"`
 }
 
 // LoadConfig reads configuration from environment variables first,
@@ -28,14 +36,14 @@ type fileConfig struct {
 func LoadConfig() (Config, error) {
 	cfg := Config{}
 
-	// Read SILICONFLOW_API_KEY from env
+	// Read env vars
 	cfg.SiliconFlowKey = os.Getenv("SILICONFLOW_API_KEY")
-
-	// Read OLLAMA_HOST from env
 	cfg.OllamaHost = os.Getenv("OLLAMA_HOST")
-
-	// Read VOCI_LANGUAGE from env
 	cfg.Language = os.Getenv("VOCI_LANGUAGE")
+	cfg.ASRProvider = os.Getenv("ASR_PROVIDER")
+	cfg.ASRAPIKey = os.Getenv("ASR_API_KEY")
+	cfg.ASRAPIURL = os.Getenv("ASR_API_URL")
+	cfg.ASRModel = os.Getenv("ASR_MODEL")
 
 	// Try to load from file
 	home, err := os.UserHomeDir()
@@ -54,22 +62,40 @@ func LoadConfig() (Config, error) {
 				if cfg.Language == "" && fc.Language != "" {
 					cfg.Language = fc.Language
 				}
+				if cfg.ASRProvider == "" && fc.ASRProvider != "" {
+					cfg.ASRProvider = fc.ASRProvider
+				}
+				if cfg.ASRAPIKey == "" && fc.ASRAPIKey != "" {
+					cfg.ASRAPIKey = fc.ASRAPIKey
+				}
+				if cfg.ASRAPIURL == "" && fc.ASRAPIURL != "" {
+					cfg.ASRAPIURL = fc.ASRAPIURL
+				}
+				if cfg.ASRModel == "" && fc.ASRModel != "" {
+					cfg.ASRModel = fc.ASRModel
+				}
 			}
 		}
 	}
 
-	// Default ollama host
+	// Defaults
 	if cfg.OllamaHost == "" {
 		cfg.OllamaHost = "http://localhost:11434"
 	}
-
-	// Default language
 	if cfg.Language == "" {
 		cfg.Language = "zh"
 	}
+	if cfg.ASRProvider == "" {
+		cfg.ASRProvider = "siliconflow"
+	}
 
-	if cfg.SiliconFlowKey == "" {
-		return cfg, fmt.Errorf("SiliconFlow API key not found: set SILICONFLOW_API_KEY env or add siliconflow_api_key to ~/.config/voci/config.yaml")
+	// Backward-compat: if ASRAPIKey not set, fall back to SiliconFlowKey
+	if cfg.ASRAPIKey == "" && cfg.SiliconFlowKey != "" {
+		cfg.ASRAPIKey = cfg.SiliconFlowKey
+	}
+
+	if cfg.ASRAPIKey == "" {
+		return cfg, fmt.Errorf("ASR API key not found: set ASR_API_KEY or SILICONFLOW_API_KEY env, or add asr_api_key/siliconflow_api_key to ~/.config/voci/config.yaml")
 	}
 
 	return cfg, nil

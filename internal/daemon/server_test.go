@@ -24,8 +24,8 @@ func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {
 	capturedHints := []string{}
 
 	srv := &Server{
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return "raw transcript", nil
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string) string {
+			return "raw transcript"
 		},
 		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			capturedHints = append(capturedHints, hint)
@@ -50,6 +50,41 @@ func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {
 	}
 
 	return srv, &hintBuilderCount, &capturedHints
+}
+
+func TestHandleTranscribePassesLanguage(t *testing.T) {
+	var gotLang string
+	stub := func(ctx context.Context, key, path, url, lang string) string {
+		gotLang = lang
+		return "ok"
+	}
+	srv := &Server{
+		TranscribeFn: stub,
+		Language:     "en",
+		APIKey:       "k",
+		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
+			return raw, nil
+		},
+		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
+			return hinted, nil
+		},
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+			return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: rewritten}, nil
+		},
+	}
+	h := srv.Handler()
+
+	audioBytes := []byte("fake audio data")
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader(audioBytes))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if gotLang != "en" {
+		t.Errorf("want en, got %q", gotLang)
+	}
 }
 
 func TestHandler_RejectsNonPost(t *testing.T) {
@@ -241,8 +276,8 @@ func TestHandler_HintBuilderResultReachesHintedStage(t *testing.T) {
 
 	hintBuilderCount := 0
 	srv := &Server{
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return "raw transcript", nil
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string) string {
+			return "raw transcript"
 		},
 		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			capturedHintsInHinted = append(capturedHintsInHinted, hint)

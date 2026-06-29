@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -156,8 +155,8 @@ func TestServer_NotificationsInitialized(t *testing.T) {
 
 func TestServer_ToolsCall_HappyPath(t *testing.T) {
 	srv := NewServer(
-		func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return "raw", nil
+		func(ctx context.Context, key, audioPath, apiURL, language string) string {
+			return "raw"
 		},
 		func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "hinted", nil
@@ -176,6 +175,7 @@ func TestServer_ToolsCall_HappyPath(t *testing.T) {
 			return "ok", nil
 		},
 		"",
+		"zh",
 	)
 
 	ts := httptest.NewServer(srv.Handler())
@@ -251,9 +251,11 @@ func TestServer_ToolsCall_MissingAudioPath(t *testing.T) {
 }
 
 func TestServer_ToolsCall_ASRError(t *testing.T) {
+	// With the new string-only TranscribeFn, ASR errors surface as empty string.
+	// The pipeline continues and returns a proposal with empty RawTranscript.
 	srv := NewServer(
-		func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return "", errors.New("ASR service unavailable")
+		func(ctx context.Context, key, audioPath, apiURL, language string) string {
+			return "" // simulate ASR failure
 		},
 		func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "hinted", nil
@@ -269,6 +271,7 @@ func TestServer_ToolsCall_ASRError(t *testing.T) {
 			return "ok", nil
 		},
 		"",
+		"zh",
 	)
 
 	ts := httptest.NewServer(srv.Handler())
@@ -278,12 +281,52 @@ func TestServer_ToolsCall_ASRError(t *testing.T) {
 	resp := postJSON(t, ts, body)
 	defer resp.Body.Close()
 
+	// With string-only TranscribeFn, ASR failures return empty string, not an error.
+	// The pipeline still succeeds (200 OK with a proposal).
 	r := decodeResponse(t, resp)
-	if r.Error == nil {
-		t.Fatal("expected error when ASR fails")
+	if r.Error != nil {
+		t.Fatalf("unexpected error: %v", r.Error)
 	}
-	if r.Error.Code != -32603 {
-		t.Errorf("expected error code -32603, got %d", r.Error.Code)
+}
+
+func TestToolsCallPassesLanguage(t *testing.T) {
+	var gotLang string
+	stub := func(ctx context.Context, key, path, url, lang string) string {
+		gotLang = lang
+		return "ok"
+	}
+	srv := NewServer(
+		stub,
+		func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
+			return raw, nil
+		},
+		func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
+			return hinted, nil
+		},
+		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+			return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: rewritten}, nil
+		},
+		"test-key",
+		func(ctx context.Context, messages []ollama.Message) (string, error) {
+			return "ok", nil
+		},
+		"",
+		"en",
+	)
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"mcp__voci__transcribe","arguments":{"audio_path":"/tmp/test.wav"}}}`
+	resp := postJSON(t, ts, body)
+	defer resp.Body.Close()
+
+	r := decodeResponse(t, resp)
+	if r.Error != nil {
+		t.Fatalf("unexpected error: %v", r.Error)
+	}
+	if gotLang != "en" {
+		t.Errorf("want en, got %q", gotLang)
 	}
 }
 

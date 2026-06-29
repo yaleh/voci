@@ -18,7 +18,7 @@ import (
 var embeddedFS embed.FS
 
 // TranscribeFn is the function signature for ASR transcription.
-type TranscribeFn func(ctx context.Context, key, audioPath, apiURL string) (string, error)
+type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string) string
 
 // HintedFn is the function signature for hinted ASR correction.
 type HintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error)
@@ -48,6 +48,8 @@ type Server struct {
 	ChatFn pipeline.ChatFn
 	// APIKey is the ASR API key.
 	APIKey string
+	// Language is the ASR language code (e.g. "zh", "en"). Selects the ASR model.
+	Language string
 	// EventWriter is the writer for event output (e.g. os.Stdout for Monitor-host mode).
 	// Written by /api/voice/emit only (not by /api/voice/transcribe).
 	EventWriter io.Writer
@@ -110,11 +112,7 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	raw, err := s.TranscribeFn(ctx, s.APIKey, tmpFile.Name(), "")
-	if err != nil {
-		http.Error(w, "ASR error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	raw := s.TranscribeFn(ctx, s.APIKey, tmpFile.Name(), "", s.Language)
 
 	hinted, err := s.HintedFn(ctx, raw, hint, s.ChatFn)
 	if err != nil {

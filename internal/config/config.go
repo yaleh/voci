@@ -12,11 +12,13 @@ import (
 type Config struct {
 	SiliconFlowKey string
 	OllamaHost     string
+	Language       string
 }
 
 type fileConfig struct {
 	SiliconFlowAPIKey string `yaml:"siliconflow_api_key"`
 	OllamaHost        string `yaml:"ollama_host"`
+	Language          string `yaml:"language"`
 }
 
 // LoadConfig reads configuration from environment variables first,
@@ -30,6 +32,9 @@ func LoadConfig() (Config, error) {
 
 	// Read OLLAMA_HOST from env
 	cfg.OllamaHost = os.Getenv("OLLAMA_HOST")
+
+	// Read VOCI_LANGUAGE from env
+	cfg.Language = os.Getenv("VOCI_LANGUAGE")
 
 	// Try to load from file
 	home, err := os.UserHomeDir()
@@ -45,6 +50,9 @@ func LoadConfig() (Config, error) {
 				if cfg.OllamaHost == "" && fc.OllamaHost != "" {
 					cfg.OllamaHost = fc.OllamaHost
 				}
+				if cfg.Language == "" && fc.Language != "" {
+					cfg.Language = fc.Language
+				}
 			}
 		}
 	}
@@ -52,6 +60,11 @@ func LoadConfig() (Config, error) {
 	// Default ollama host
 	if cfg.OllamaHost == "" {
 		cfg.OllamaHost = "http://localhost:11434"
+	}
+
+	// Default language
+	if cfg.Language == "" {
+		cfg.Language = "zh"
 	}
 
 	if cfg.SiliconFlowKey == "" {

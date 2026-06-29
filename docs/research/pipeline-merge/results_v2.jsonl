@@ -1,0 +1,35 @@
+{"case_id":"sample-01","transcript":"Fix the TASK-1 bug in the voci project.","rewritten":"Fix the TASK-1 bug in the voci project.","kind":"backlog_action","confidence":0.0,"latency_ms":7060.6,"parse_error":false}
+{"case_id":"sample-02","transcript":"Add logging to the voci CLI command handler.","rewritten":"Add logging to the voci CLI command handler.","kind":"direct_prompt","confidence":0.0,"latency_ms":6327.7,"parse_error":false}
+{"case_id":"sample-03","transcript":"Update the context builder in internal context builder","rewritten":"Update the internal context builder.","kind":"direct_prompt","confidence":0.0,"latency_ms":12338.3,"parse_error":false}
+{"case_id":"sample-04","transcript":"Make it faster.","rewritten":"Make it faster.","kind":"direct_prompt","confidence":0.0,"latency_ms":4192.5,"parse_error":false}
+{"case_id":"sample-05","transcript":"Relayout the TASK-3 handler in the voci package to use channels.","rewritten":"Relayout the TASK-3 handler in the voci package to use channels.","kind":"backlog_action","confidence":0.0,"latency_ms":7682.5,"parse_error":false}
+{"case_id":"sample-06","transcript":"TASK-5 and TASK-8 need to be merged before release.","rewritten":"Merge TASK-5 and TASK-8 before release.","kind":"direct_prompt","confidence":0.0,"latency_ms":3713.7,"parse_error":false}
+{"case_id":"sample-07","transcript":"Run the voci command with --file option.","rewritten":"Run the voci command with --file option.","kind":"direct_prompt","confidence":0.0,"latency_ms":8064.4,"parse_error":false}
+{"case_id":"sample-08","transcript":"Pass the --iterate flag to the voci binary.","rewritten":"Pass the --iterate flag to the voci binary.","kind":"direct_prompt","confidence":0.0,"latency_ms":58464.8,"parse_error":false}
+{"case_id":"sample-09","transcript":"Look at the internal/pipeline package for the chat function.","rewritten":"Show the internal/pipeline package for the chat function.","kind":"direct_prompt","confidence":0.0,"latency_ms":9365.7,"parse_error":false}
+{"case_id":"sample-10","transcript":"Fix the internal/asr module transcription timeout.","rewritten":"Fix the internal/asr module transcription timeout.","kind":"backlog_action","confidence":0.0,"latency_ms":10305.6,"parse_error":false}
+{"case_id":"sample-11","transcript":"The RunHinted function needs a new system prompt.","rewritten":"The RunHinted function requires a new system prompt.","kind":"backlog_action","confidence":0.0,"latency_ms":5419.0,"parse_error":false}
+{"case_id":"sample-12","transcript":"Call BuildContext before the pipeline stage.","rewritten":"Call BuildContext before the pipeline stage.","kind":"direct_prompt","confidence":0.0,"latency_ms":4861.6,"parse_error":false}
+{"case_id":"sample-13","transcript":"TASK-6 is blocked by TASK-2 and TASK-8.","rewritten":"TASK-6 is blocked by TASK-2 and TASK-8.","kind":"backlog_action","confidence":0.0,"latency_ms":13648.9,"parse_error":false}
+{"case_id":"sample-14","transcript":"TASK-8 has the prompt changes for RunHinted","rewritten":"Review prompt changes for RunHinted in TASK-8.","kind":"backlog_action","confidence":0.0,"latency_ms":7282.4,"parse_error":false}
+{"case_id":"sample-15","transcript":"Update RunHinted in internal/pipeline to handle TASK-4 edge case.","rewritten":"Update RunHinted in internal/pipeline to handle TASK-4 edge case.","kind":"direct_prompt","confidence":0.0,"latency_ms":6632.0,"parse_error":false}
+{"case_id":"sample-16","transcript":"把任务29 推到 ready","rewritten":"将任务29推到ready状态。","kind":"backlog_action","confidence":0.9,"latency_ms":4854.3,"parse_error":false}
+{"case_id":"sample-17","transcript":"运行所有测试 看看有没有失败","rewritten":"运行所有测试并检查是否有任何失败","kind":"direct_prompt","confidence":0.0,"latency_ms":4260.4,"parse_error":false}
+{"case_id":"sample-18","transcript":"提交代码 写提交信息","rewritten":"提交代码并填写提交信息","kind":"direct_prompt","confidence":0.9,"latency_ms":3706.4,"parse_error":false}
+{"case_id":"sample-19","transcript":"检查最近的改动有没有问题。","rewritten":"检查最近的改动有没有问题。","kind":"direct_prompt","confidence":0.0,"latency_ms":4080.8,"parse_error":false}
+{"case_id":"sample-20","transcript":"新建一个分支来做这个功能","rewritten":"新建一个分支来做这个功能","kind":"direct_prompt","confidence":0.0,"latency_ms":5249.7,"parse_error":false}
+{"case_id":"sample-21","transcript":"把这个 bug 加到 backlog","rewritten":"把这个 bug 加到 backlog","kind":"backlog_action","confidence":0.0,"latency_ms":6359.6,"parse_error":false}
+{"case_id":"sample-22","transcript":"修复 BuildContextWithSource","rewritten":"修复 BuildContextWithSource","kind":"direct_prompt","confidence":0.0,"latency_ms":4589.0,"parse_error":false}
+{"case_id":"sample-23","transcript":"检查 builder.go 的","rewritten":"检查 builder.go","kind":"direct_prompt","confidence":0.0,"latency_ms":5010.5,"parse_error":false}
+{"case_id":"sample-24","transcript":"DynamicEntitiesSource 的测试挂了，看看怎么回事。","rewritten":"DynamicEntitiesSource 的测试失败了，请查看原因。","kind":"query","confidence":0.0,"latency_ms":6798.5,"parse_error":false}
+{"case_id":"sample-25","transcript":"给 RunHinted, 加一个单元测试。","rewritten":"给 RunHinted 加一个单元测试。","kind":"direct_prompt","confidence":0.0,"latency_ms":4172.4,"parse_error":false}
+{"case_id":"sample-26","transcript":"pipeline.go 里的 Rewrite 函数需要优化","rewritten":"优化 pipeline.go 里的 Rewrite 函数。","kind":"backlog_action","confidence":0.0,"latency_ms":6548.3,"parse_error":false}
+{"case_id":"sample-27","transcript":"检查 SILICONFLOW_API_KEY 有没有配置","rewritten":"检查 SILICONFLOW_API_KEY 的配置","kind":"direct_prompt","confidence":0.0,"latency_ms":8165.2,"parse_error":false}
+{"case_id":"sample-28","transcript":"Push task 29","rewritten":"Push task 29","kind":"direct_prompt","confidence":0.0,"latency_ms":7315.6,"parse_error":false}
+{"case_id":"sample-29","transcript":"run the tests and check the output","rewritten":"Run the tests and check the output.","kind":"direct_prompt","confidence":0.0,"latency_ms":3496.2,"parse_error":false}
+{"case_id":"sample-30","transcript":"把 literal flag 加到命令里","rewritten":"在命令中加入 literal flag","kind":"direct_prompt","confidence":0.9,"latency_ms":4649.5,"parse_error":false}
+{"case_id":"sample-31","transcript":"用 go test dash dash run 跑一下这个测试","rewritten":"使用 `go test --run` 命令运行测试。","kind":"direct_prompt","confidence":0.9,"latency_ms":5858.7,"parse_error":false}
+{"case_id":"sample-32","transcript":"Check the internal asr module for timeout issues.","rewritten":"Check the internal asr module for timeout issues.","kind":"direct_prompt","confidence":0.0,"latency_ms":5578.4,"parse_error":false}
+{"case_id":"sample-33","transcript":"把 K 負三十二 的 non-entities 邏輯 review 一下","rewritten":"Review K-32 的 non-entities 邏輯。","kind":"direct_prompt","confidence":0.0,"latency_ms":13042.2,"parse_error":false}
+{"case_id":"sample-34","transcript":"Fix the DynamicEntitiesSource benchmark.","rewritten":"Fix the DynamicEntitiesSource benchmark.","kind":"direct_prompt","confidence":0.0,"latency_ms":9820.1,"parse_error":false}
+{"case_id":"sample-35","transcript":"给 gemma4 的 adapter 加 supports_hints 字段","rewritten":"给 gemma4 的 adapter 添加 supports_hints 字段","kind":"direct_prompt","confidence":0.0,"latency_ms":4829.5,"parse_error":false}

@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/yalehu/voci/internal/asr"
 	"github.com/yalehu/voci/internal/intent"
 	"github.com/yalehu/voci/internal/pipeline"
 )
 
 // TranscribeFn is the function signature for ASR transcription.
-type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string) string
+type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string
 
 // HintedFn is the function signature for hinted ASR correction.
 type HintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error)
@@ -180,8 +181,9 @@ func (s *Server) toolsCall(req Request) Response {
 	}
 
 	ctx := context.Background()
+	entities := asr.ExtractEntities(s.Hint)
 
-	raw := s.TranscribeFn(ctx, s.APIKey, audioPath, "", s.Language)
+	raw := s.TranscribeFn(ctx, s.APIKey, audioPath, "", s.Language, entities)
 
 	hinted, err := s.HintedFn(ctx, raw, s.Hint, s.ChatFn)
 	if err != nil {

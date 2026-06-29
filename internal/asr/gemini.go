@@ -66,17 +66,29 @@ type geminiResponse struct {
 	Candidates []geminiCandidate `json:"candidates"`
 }
 
-func buildGeminiRequest(ctx context.Context, key, audioPath, apiURL, model string) (*http.Request, error) {
+func buildGeminiRequest(ctx context.Context, key, audioPath, apiURL, model string, entities []string) (*http.Request, error) {
 	audioData, err := os.ReadFile(audioPath)
 	if err != nil {
 		return nil, fmt.Errorf("read audio: %w", err)
+	}
+
+	var promptText string
+	if len(entities) > 0 {
+		promptText = "Transcribe the following audio. Below is an example of correct output format:\n\n" +
+			"Example — if the audio contains the phrase \"我们用 Sentry 来监控\" and the " +
+			"known term is \"Sentry\", the correct transcript is:\n" +
+			"\"我们用 Sentry 来监控\"\n\n" +
+			"Known technical terms: " + strings.Join(entities, ", ") + "\n\n" +
+			"Now transcribe the actual audio:"
+	} else {
+		promptText = "Transcribe the following audio."
 	}
 
 	payload := geminiRequest{
 		Contents: []geminiContent{
 			{
 				Parts: []geminiPart{
-					{Text: "Transcribe the following audio."},
+					{Text: promptText},
 					{InlineData: &geminiInlineData{
 						MimeType: "audio/wav",
 						Data:     base64.StdEncoding.EncodeToString(audioData),
@@ -104,7 +116,8 @@ func buildGeminiRequest(ctx context.Context, key, audioPath, apiURL, model strin
 // apiURL defaults to DefaultGeminiAPIURLTemplate with model substituted if empty.
 // model defaults to DefaultGeminiModel if empty.
 // Auth uses x-goog-api-key header; key is never written to the URL.
-func TranscribeGemini(ctx context.Context, key, audioPath, apiURL, language, model string) string {
+// entities, when non-empty, enables Config C few-shot prompt format with the given technical terms.
+func TranscribeGemini(ctx context.Context, key, audioPath, apiURL, language, model string, entities []string) string {
 	if model == "" {
 		model = DefaultGeminiModel
 	}
@@ -115,7 +128,7 @@ func TranscribeGemini(ctx context.Context, key, audioPath, apiURL, language, mod
 		apiURL = apiURL + "/v1beta/models/" + model + ":generateContent"
 	}
 
-	req, err := buildGeminiRequest(ctx, key, audioPath, apiURL, model)
+	req, err := buildGeminiRequest(ctx, key, audioPath, apiURL, model, entities)
 	if err != nil {
 		log.Printf("asr: gemini: build request: %v", err)
 		return ""
@@ -146,6 +159,49 @@ func TranscribeGemini(ctx context.Context, key, audioPath, apiURL, language, mod
 	}
 
 	return result.Candidates[0].Content.Parts[0].Text
+}
+
+// ExtractEntities parses a hint string and returns canonical entity names from
+// "## Known Entities" or "## Known Entities (dynamic)" sections.
+// Each line of the form "- spoken: Canonical" contributes the right-hand side (canonical form).
+// Returns nil if no entities are found.
+func ExtractEntities(hint string) []string {
+	lines := strings.Split(hint, "\n")
+	inSection := false
+	seen := map[string]struct{}{}
+	var result []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## Known Entities") {
+			inSection = true
+			continue
+		}
+		if inSection {
+			if strings.HasPrefix(trimmed, "## ") {
+				// Next section header: stop
+				break
+			}
+			if strings.HasPrefix(trimmed, "- ") {
+				entry := strings.TrimPrefix(trimmed, "- ")
+				// Format: "spoken: Canonical" — take right-hand side
+				if idx := strings.Index(entry, ": "); idx >= 0 {
+					canonical := strings.TrimSpace(entry[idx+2:])
+					if canonical != "" {
+						if _, exists := seen[canonical]; !exists {
+							seen[canonical] = struct{}{}
+							result = append(result, canonical)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // GeminiChat sends a multi-turn chat to the Gemini generateContent API.

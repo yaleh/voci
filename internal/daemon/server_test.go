@@ -24,7 +24,7 @@ func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {
 	capturedHints := []string{}
 
 	srv := &Server{
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string) string {
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
 			return "raw transcript"
 		},
 		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
@@ -54,7 +54,7 @@ func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {
 
 func TestHandleTranscribePassesLanguage(t *testing.T) {
 	var gotLang string
-	stub := func(ctx context.Context, key, path, url, lang string) string {
+	stub := func(ctx context.Context, key, path, url, lang string, entities []string) string {
 		gotLang = lang
 		return "ok"
 	}
@@ -276,7 +276,7 @@ func TestHandler_HintBuilderResultReachesHintedStage(t *testing.T) {
 
 	hintBuilderCount := 0
 	srv := &Server{
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string) string {
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
 			return "raw transcript"
 		},
 		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {

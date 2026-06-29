@@ -155,7 +155,7 @@ func TestServer_NotificationsInitialized(t *testing.T) {
 
 func TestServer_ToolsCall_HappyPath(t *testing.T) {
 	srv := NewServer(
-		func(ctx context.Context, key, audioPath, apiURL, language string) string {
+		func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
 			return "raw"
 		},
 		func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
@@ -254,7 +254,7 @@ func TestServer_ToolsCall_ASRError(t *testing.T) {
 	// With the new string-only TranscribeFn, ASR errors surface as empty string.
 	// The pipeline continues and returns a proposal with empty RawTranscript.
 	srv := NewServer(
-		func(ctx context.Context, key, audioPath, apiURL, language string) string {
+		func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
 			return "" // simulate ASR failure
 		},
 		func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
@@ -291,7 +291,7 @@ func TestServer_ToolsCall_ASRError(t *testing.T) {
 
 func TestToolsCallPassesLanguage(t *testing.T) {
 	var gotLang string
-	stub := func(ctx context.Context, key, path, url, lang string) string {
+	stub := func(ctx context.Context, key, path, url, lang string, entities []string) string {
 		gotLang = lang
 		return "ok"
 	}

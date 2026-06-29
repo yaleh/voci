@@ -32,7 +32,7 @@ func TestTranscribeReturnsText(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	text := Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh", "siliconflow", "")
+	text := Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh", "siliconflow", "", nil)
 	if text != "hello" {
 		t.Errorf("expected 'hello', got %q", text)
 	}
@@ -51,7 +51,7 @@ func TestTranscribeSendsMultipartWithModel(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_ = Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh", "siliconflow", "")
+	_ = Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh", "siliconflow", "", nil)
 
 	if !strings.HasPrefix(capturedCT, "multipart/form-data") {
 		t.Errorf("expected multipart/form-data, got %q", capturedCT)
@@ -71,7 +71,7 @@ func TestTranscribeHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	result := Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh", "siliconflow", "")
+	result := Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh", "siliconflow", "", nil)
 	if result != "" {
 		t.Errorf("expected empty string on HTTP error, got %q", result)
 	}
@@ -91,7 +91,7 @@ func TestTranscribeZhUsesTelespeech(t *testing.T) {
 	f, _ := os.CreateTemp("", "*.wav")
 	f.Close()
 	defer os.Remove(f.Name())
-	result := Transcribe(context.Background(), "key", f.Name(), srv.URL, "zh", "siliconflow", "")
+	result := Transcribe(context.Background(), "key", f.Name(), srv.URL, "zh", "siliconflow", "", nil)
 	if !strings.Contains(capturedModel, "TeleSpeechASR") {
 		t.Errorf("zh should use TeleSpeechASR, got model=%q, result=%q", capturedModel, result)
 	}
@@ -111,7 +111,7 @@ func TestTranscribeEnUsesWhisper(t *testing.T) {
 	f, _ := os.CreateTemp("", "*.wav")
 	f.Close()
 	defer os.Remove(f.Name())
-	result := Transcribe(context.Background(), "key", f.Name(), srv.URL, "en", "siliconflow", "")
+	result := Transcribe(context.Background(), "key", f.Name(), srv.URL, "en", "siliconflow", "", nil)
 	if strings.Contains(capturedModel, "TeleSpeechASR") {
 		t.Errorf("en should use Whisper, not TeleSpeechASR, got model=%q, result=%q", capturedModel, result)
 	}
@@ -133,7 +133,7 @@ func TestTranscribeOpenRouterSendsJSONBase64(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_ = Transcribe(context.Background(), "sk-or", wavPath, srv.URL, "", "openrouter", "")
+	_ = Transcribe(context.Background(), "sk-or", wavPath, srv.URL, "", "openrouter", "", nil)
 
 	if capturedCT != "application/json" {
 		t.Errorf("expected Content-Type application/json, got %q", capturedCT)
@@ -162,7 +162,7 @@ func TestTranscribeOpenRouterUsesDefaultModel(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_ = Transcribe(context.Background(), "sk-or", wavPath, srv.URL, "", "openrouter", "")
+	_ = Transcribe(context.Background(), "sk-or", wavPath, srv.URL, "", "openrouter", "", nil)
 
 	if capturedBody["model"] != DefaultOpenRouterModel {
 		t.Errorf("want model %q, got %q", DefaultOpenRouterModel, capturedBody["model"])
@@ -180,7 +180,7 @@ func TestTranscribeOpenRouterUsesCustomModel(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_ = Transcribe(context.Background(), "sk-or", wavPath, srv.URL, "", "openrouter", "microsoft/mai-transcribe-1.5")
+	_ = Transcribe(context.Background(), "sk-or", wavPath, srv.URL, "", "openrouter", "microsoft/mai-transcribe-1.5", nil)
 
 	if capturedBody["model"] != "microsoft/mai-transcribe-1.5" {
 		t.Errorf("want model microsoft/mai-transcribe-1.5, got %q", capturedBody["model"])
@@ -198,7 +198,7 @@ func TestTranscribeSiliconflowStillMultipart(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_ = Transcribe(context.Background(), "sk-sf", wavPath, srv.URL, "zh", "siliconflow", "")
+	_ = Transcribe(context.Background(), "sk-sf", wavPath, srv.URL, "zh", "siliconflow", "", nil)
 
 	if !strings.HasPrefix(capturedCT, "multipart/form-data") {
 		t.Errorf("siliconflow should use multipart/form-data, got %q", capturedCT)
@@ -216,7 +216,7 @@ func TestTranscribeModelOverrideForSiliconflow(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_ = Transcribe(context.Background(), "sk-sf", wavPath, srv.URL, "zh", "siliconflow", "my-custom-model")
+	_ = Transcribe(context.Background(), "sk-sf", wavPath, srv.URL, "zh", "siliconflow", "my-custom-model", nil)
 
 	if !strings.Contains(string(capturedBody), "my-custom-model") {
 		t.Errorf("expected my-custom-model in body, got: %s", capturedBody)

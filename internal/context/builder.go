@@ -364,6 +364,7 @@ func defaultBuilder(root string, gitRunner GitRunner) *Builder {
 
 	b := &Builder{}
 	b.Register(&KnownEntitiesSource{})
+	b.Register(&DynamicEntitiesSource{})
 	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: runner})

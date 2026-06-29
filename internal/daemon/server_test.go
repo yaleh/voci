@@ -570,6 +570,37 @@ func TestEmit_DefaultsKindWhenAbsent(t *testing.T) {
 	}
 }
 
+// Phase TASK-46: BearerToken auth on API routes
+
+func TestHandler_StaticFilesUnprotected(t *testing.T) {
+	s, _, _ := makeServer(t, "")
+	s.BearerToken = "tok"
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("want 200 for static, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandler_APIRequiresTokenWhenSet(t *testing.T) {
+	s, _, _ := makeServer(t, "")
+	s.BearerToken = "tok"
+	ts := httptest.NewServer(s.Handler())
+	defer ts.Close()
+	resp, err := http.Post(ts.URL+"/api/voice/emit", "application/json",
+		strings.NewReader(`{"text":"hi","kind":"direct_prompt"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("want 401, got %d", resp.StatusCode)
+	}
+}
+
 // Phase D: /api/context endpoint
 
 func TestHandleContext_ReturnsHint(t *testing.T) {

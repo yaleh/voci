@@ -120,6 +120,12 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 
 </div>
 
+<div id="voci-token-setup" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:100; flex-direction:column; align-items:center; justify-content:center; gap:12px;">
+  <p style="color:#fff; font-size:14px;">Enter your voci Bearer token:</p>
+  <input id="voci-token" type="text" placeholder="paste token here" style="padding:8px 12px; border-radius:6px; border:none; width:320px; font-size:14px;">
+  <button onclick="saveToken()" style="padding:8px 20px; border-radius:6px; background:#5b9cf6; color:#fff; border:none; cursor:pointer; font-size:14px;">Save</button>
+</div>
+
 <script src="recorder.js"></script>
 </body>
 </html>

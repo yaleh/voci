@@ -1,6 +1,46 @@
 // voci PTT recorder
 // APIs: GET /api/context, POST /api/voice/transcribe, POST /api/voice/emit
 (function () {
+  // ── Token auth ───────────────────────────────────────────
+  var STORAGE_KEY = 'voci_token';
+
+  function getToken() {
+    return localStorage.getItem(STORAGE_KEY) || '';
+  }
+
+  function apiFetch(url, opts) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    var tok = getToken();
+    if (tok) opts.headers['Authorization'] = 'Bearer ' + tok;
+    return fetch(url, opts);
+  }
+
+  function checkToken() {
+    var setup = document.getElementById('voci-token-setup');
+    if (setup) {
+      if (!getToken()) {
+        setup.style.display = 'flex';
+      } else {
+        setup.style.display = 'none';
+      }
+    }
+  }
+
+  function saveToken() {
+    var input = document.getElementById('voci-token');
+    if (!input) return;
+    var val = input.value.trim();
+    if (val) {
+      localStorage.setItem(STORAGE_KEY, val);
+      var setup = document.getElementById('voci-token-setup');
+      if (setup) setup.style.display = 'none';
+    }
+  }
+
+  // expose saveToken globally for the inline onclick handler
+  window.saveToken = saveToken;
+
   var phase = 'idle'; // idle | recording | processing
   var isRecording = false;
   var chunks = [], recorder = null, mediaStream = null;
@@ -179,7 +219,7 @@
   }
 
   function refreshContext() {
-    fetch('/api/context')
+    apiFetch('/api/context')
       .then(function (r) { return r.json(); })
       .then(function (resp) {
         setConnected(true);
@@ -235,7 +275,7 @@
   }
 
   function processAudio(blob) {
-    fetch('/api/voice/transcribe', { method: 'POST', body: blob })
+    apiFetch('/api/voice/transcribe', { method: 'POST', body: blob })
       .then(function (r) { return r.json(); })
       .then(function (p) {
         var kind  = p.Kind || 'direct_prompt';
@@ -255,7 +295,7 @@
     if (!text) return;
     var now  = new Date();
     var time = pad(now.getHours()) + ':' + pad(now.getMinutes());
-    fetch('/api/voice/emit', {
+    apiFetch('/api/voice/emit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: text, kind: kind || 'direct_prompt' }),
@@ -318,6 +358,7 @@
 
   setPhase('idle');
   updateSendBtn();
+  checkToken();
   refreshContext();
   setInterval(refreshContext, 5000);
   setInterval(function () {

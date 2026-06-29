@@ -141,6 +141,40 @@ func TestEmbeddedRecorder_UsesContract(t *testing.T) {
 	}
 }
 
+func TestEmbeddedRecorder_HasAuthHeader(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	if !strings.Contains(string(data), "Authorization") {
+		t.Error("recorder.js missing Authorization header")
+	}
+}
+
+func TestEmbeddedRecorder_HasLocalStorageToken(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/recorder.js")
+	if err != nil {
+		t.Fatalf("read recorder.js: %v", err)
+	}
+	body := string(data)
+	if !strings.Contains(body, "localStorage") {
+		t.Error("recorder.js missing localStorage")
+	}
+	if !strings.Contains(body, "voci_token") {
+		t.Error("recorder.js missing voci_token")
+	}
+}
+
+func TestEmbeddedIndex_HasTokenInputUI(t *testing.T) {
+	data, err := embeddedFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	if !strings.Contains(string(data), "voci-token") {
+		t.Error("index.html missing voci-token element")
+	}
+}
+
 // helpers
 
 func makeEmitServer(t *testing.T) *Server {

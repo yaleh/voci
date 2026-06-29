@@ -11,12 +11,22 @@ and Gemini CLI planned.
 ```
 browser/mic audio
   → context retrieval        (backlog tasks, CLAUDE.md, git log, session signals)
-  → contextual ASR           (gpt-4o-transcribe, project terms injected as prompt)
+  → contextual ASR           (Gemini 2.5-flash, project terms injected as prompt)
   → intent rewrite           (transcript → clean instruction, ambiguity detection)
   → ActionProposal           (direct_prompt | backlog_action | query)
   → human confirmation gate  (preview / edit / discard — never auto-executes)
   → tool adapter delivery    (tmux send-keys / MCP / stdin)
 ```
+
+## ASR provider decision
+
+Gemini `generateContent` (multimodal) is the only hosted API where injecting a
+known-entity list into the prompt measurably improves technical-term recall
+(+0.357 entity_recall_exact vs baseline on zh-technical+zh-mixed speech).
+
+Pure ASR APIs (Whisper, SenseVoice, Qwen3-ASR) discard the `prompt` field
+server-side — confirmed across SiliconFlow, OpenRouter, and direct API
+(TASK-34/36/37/40). See [`docs/adr/001-asr-provider-and-hint-injection.md`](docs/adr/001-asr-provider-and-hint-injection.md).
 
 ## Why not a heavy stack
 

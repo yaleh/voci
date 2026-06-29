@@ -22,8 +22,8 @@ func newTestServer() *Server {
 // rawASR is returned by TranscribeFn; rewritten is returned by RewriteFn and set on the proposal.
 func newDeterministicServer(rawASR, rewritten string) *Server {
 	return NewServer(
-		func(ctx context.Context, key, audioPath, apiURL string) (string, error) {
-			return rawASR, nil
+		func(ctx context.Context, key, audioPath, apiURL, language string) string {
+			return rawASR
 		},
 		func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "hinted text", nil
@@ -42,6 +42,7 @@ func newDeterministicServer(rawASR, rewritten string) *Server {
 			return "chat response", nil
 		},
 		"",
+		"zh",
 	)
 }
 

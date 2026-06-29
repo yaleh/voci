@@ -45,6 +45,49 @@ func TestLoadConfigFromFile(t *testing.T) {
 	}
 }
 
+func TestLoadConfigLanguageFromEnv(t *testing.T) {
+	t.Setenv("SILICONFLOW_API_KEY", "sk-test")
+	t.Setenv("VOCI_LANGUAGE", "en")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Language != "en" {
+		t.Errorf("want en, got %q", cfg.Language)
+	}
+}
+
+func TestLoadConfigLanguageFromFile(t *testing.T) {
+	// Clear env, write yaml with language: fr, set HOME to tmpdir
+	t.Setenv("VOCI_LANGUAGE", "")
+	t.Setenv("SILICONFLOW_API_KEY", "sk-test")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	os.MkdirAll(dir+"/.config/voci", 0755)
+	os.WriteFile(dir+"/.config/voci/config.yaml", []byte("language: fr\n"), 0644)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Language != "fr" {
+		t.Errorf("want fr, got %q", cfg.Language)
+	}
+}
+
+func TestLoadConfigLanguageDefault(t *testing.T) {
+	t.Setenv("VOCI_LANGUAGE", "")
+	t.Setenv("SILICONFLOW_API_KEY", "sk-test")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Language != "zh" {
+		t.Errorf("want zh, got %q", cfg.Language)
+	}
+}
+
 func TestLoadConfigMissingKey(t *testing.T) {
 	t.Setenv("SILICONFLOW_API_KEY", "")
 	// Point HOME to a temp dir with no config file

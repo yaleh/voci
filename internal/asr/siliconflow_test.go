@@ -2,6 +2,7 @@ package asr
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,10 +31,7 @@ func TestTranscribeReturnsText(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	text, err := Transcribe(context.Background(), "sk-test", wavPath, srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	text := Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh")
 	if text != "hello" {
 		t.Errorf("expected 'hello', got %q", text)
 	}
@@ -52,10 +50,7 @@ func TestTranscribeSendsMultipartWithModel(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_, err := Transcribe(context.Background(), "sk-test", wavPath, srv.URL)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	_ = Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh")
 
 	if !strings.HasPrefix(capturedCT, "multipart/form-data") {
 		t.Errorf("expected multipart/form-data, got %q", capturedCT)
@@ -75,8 +70,53 @@ func TestTranscribeHTTPError(t *testing.T) {
 	defer srv.Close()
 
 	wavPath := writeTempWav(t)
-	_, err := Transcribe(context.Background(), "sk-test", wavPath, srv.URL)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	result := Transcribe(context.Background(), "sk-test", wavPath, srv.URL, "zh")
+	if result != "" {
+		t.Errorf("expected empty string on HTTP error, got %q", result)
+	}
+}
+
+func TestTranscribeZhUsesTelespeech(t *testing.T) {
+	// httptest server that captures request body
+	var capturedModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseMultipartForm(1 << 20)
+		capturedModel = r.FormValue("model")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{{"message": map[string]interface{}{"content": "transcribed"}}},
+		})
+	}))
+	defer srv.Close()
+	// Create a temp audio file
+	f, _ := os.CreateTemp("", "*.wav")
+	f.Close()
+	defer os.Remove(f.Name())
+	result := Transcribe(context.Background(), "key", f.Name(), srv.URL, "zh")
+	if !strings.Contains(capturedModel, "TeleSpeechASR") {
+		t.Errorf("zh should use TeleSpeechASR, got model=%q, result=%q", capturedModel, result)
+	}
+}
+
+func TestTranscribeEnUsesWhisper(t *testing.T) {
+	var capturedModel string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseMultipartForm(1 << 20)
+		capturedModel = r.FormValue("model")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{{"message": map[string]interface{}{"content": "transcribed"}}},
+		})
+	}))
+	defer srv.Close()
+	f, _ := os.CreateTemp("", "*.wav")
+	f.Close()
+	defer os.Remove(f.Name())
+	result := Transcribe(context.Background(), "key", f.Name(), srv.URL, "en")
+	if strings.Contains(capturedModel, "TeleSpeechASR") {
+		t.Errorf("en should use Whisper, not TeleSpeechASR, got model=%q, result=%q", capturedModel, result)
+	}
+	if !strings.Contains(capturedModel, "whisper") {
+		t.Errorf("en should use whisper model, got model=%q", capturedModel)
 	}
 }

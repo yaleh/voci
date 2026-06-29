@@ -83,7 +83,7 @@ func dispatch(
 }
 
 // Dependency types for testing
-type TranscribeFn func(ctx context.Context, key, audioPath, apiURL string) (string, error)
+type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string) string
 type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error)
 type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
 type GateFn func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult
@@ -207,6 +207,7 @@ func run(
 			},
 			ChatFn:      chatFn,
 			APIKey:      cfg.SiliconFlowKey,
+			Language:    cfg.Language,
 			EventWriter: os.Stdout,
 			EventPath:   *eventsPathFlag,
 		}
@@ -282,6 +283,7 @@ func run(
 			},
 			ChatFn:    chatFn,
 			APIKey:    cfg.SiliconFlowKey,
+			Language:  cfg.Language,
 			EventPath: eventsPath,
 		}
 		return srv.Start(addr)
@@ -326,6 +328,7 @@ func run(
 					cfg.SiliconFlowKey,
 					chatFn,
 					hint,
+					cfg.Language,
 				)
 				return srv.Start(addr)
 			}
@@ -394,10 +397,7 @@ func run(
 	}
 
 	// Stage 2: ASR transcription
-	raw, err := transcribeFn(ctx, cfg.SiliconFlowKey, *fileFlag, "")
-	if err != nil {
-		return fmt.Errorf("ASR: %w", err)
-	}
+	raw := transcribeFn(ctx, cfg.SiliconFlowKey, *fileFlag, "", cfg.Language)
 
 	// Stage 3: Hinted correction
 	hinted, err := hintedFn(ctx, raw, hint, chatFn)

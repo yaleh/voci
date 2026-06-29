@@ -11,7 +11,7 @@ import (
 )
 
 // TranscribeFn is the function signature for ASR transcription.
-type TranscribeFn func(ctx context.Context, key, audioPath, apiURL string) (string, error)
+type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string) string
 
 // HintedFn is the function signature for hinted ASR correction.
 type HintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error)
@@ -23,12 +23,14 @@ type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.Ch
 type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
 
 // Server is a local MCP JSON-RPC HTTP server that exposes the voci pipeline as a tool.
+// Language string is passed to TranscribeFn to select the ASR model (see VOCI_LANGUAGE).
 type Server struct {
 	TranscribeFn TranscribeFn
 	HintedFn     HintedFn
 	RewriteFn    RewriteFn
 	ClassifyFn   ClassifyFn
 	APIKey       string
+	Language     string
 	ChatFn       pipeline.ChatFn
 	Hint         string
 }
@@ -42,6 +44,7 @@ func NewServer(
 	apiKey string,
 	chatFn pipeline.ChatFn,
 	hint string,
+	language string,
 ) *Server {
 	return &Server{
 		TranscribeFn: transcribeFn,
@@ -49,6 +52,7 @@ func NewServer(
 		RewriteFn:    rewriteFn,
 		ClassifyFn:   classifyFn,
 		APIKey:       apiKey,
+		Language:     language,
 		ChatFn:       chatFn,
 		Hint:         hint,
 	}
@@ -177,10 +181,7 @@ func (s *Server) toolsCall(req Request) Response {
 
 	ctx := context.Background()
 
-	raw, err := s.TranscribeFn(ctx, s.APIKey, audioPath, "")
-	if err != nil {
-		return errorResponse(req.ID, -32603, "ASR error: "+err.Error())
-	}
+	raw := s.TranscribeFn(ctx, s.APIKey, audioPath, "", s.Language)
 
 	hinted, err := s.HintedFn(ctx, raw, s.Hint, s.ChatFn)
 	if err != nil {

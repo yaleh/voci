@@ -1,6 +1,6 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir and removes it on exit; no separate background start needed. Startup metadata (local URL, share URL, Bearer token) is written to ~/.voci/<SESSION_ID>.status — Monitor command is a bare voci serve with no shell pipeline. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on event arrival in any session, classify and dispatch directly without calling the skill again. Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir, removes it on exit, and emits a startup JSON event (type=startup) to stdout for Monitor display — no separate background start or status poll needed. Monitor command is a bare voci serve with no shell pipeline. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on startup event arrival display URL/token to user; on voice event extract 'rewritten' and execute inline. Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop, TaskOutput
 contracts:
   - grep: "Monitor(persistent=true"
@@ -31,6 +31,8 @@ contracts:
     target: self
   - grep: ".status"
     target: self
+  - grep: "StartupEvent"
+    target: self
 ---
 
 λ() → listenLoop()
@@ -57,6 +59,7 @@ onMonitorEvent    :: Line → Outcome            -- Monitor-event entry: classif
 
 data Outcome   = Listening | Stopped
 data EventKind = VoiceEvent String         -- JSON line with Rewritten field → execute inline
+               | StartupEvent String       -- JSON line with type=="startup" → display URL, no execute
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Entry Point Guard: Cold-start vs. Monitor-event dispatch
@@ -99,7 +102,8 @@ onMonitorEvent(line) = {
     cleanupLock(SESSION_ID),
     return: Stopped,
   kind: classifyEvent(line),
-  | VoiceEvent line  → execute(extractInstruction(line)),
+  | StartupEvent line → displayStartup(line),   -- parse local_url, share_url, bearer_token; show to user
+  | VoiceEvent   line → execute(extractInstruction(line)),
   return: Listening,
 }
 
@@ -125,15 +129,15 @@ ensureMonitor(SESSION_ID) = {
   -- No live Monitor found: arm a new persistent Monitor.
   -- --serve-port 0: OS assigns port; --lock-dir/--session-id: binary self-manages lock.
   -- The command is a bare voci serve — no shell pipeline, no grep wrapper.
-  -- Startup metadata (local URL, share URL, Bearer token) is written to
-  -- ~/.voci/$SESSION_ID.status by the binary; poll that file after arming.
+  -- Startup metadata (local URL, share URL, Bearer token) arrives as a startup JSON event
+  -- on stdout via the Monitor; onMonitorEvent displays it. No separate poll needed.
   -- JSON event lines (containing "rewritten") arrive on stdout → voice instruction to execute.
   -- After arming, write the task ID to ~/.voci/$SESSION_ID.task for future
   -- reconnect detection (TaskList is unreliable for persistent Monitors).
   -- On wake-up: onMonitorEvent classifies and dispatches directly. No skill restart.
   TASK_ID = Monitor(persistent=true,
     command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID",
-    description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction.")
+    description="voci-listen: event arrived — DO NOT call /voci-listen again. If JSON has type=='startup': extract local_url, share_url, bearer_token and display them to the user. Otherwise: parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction. If ~/.voci/.listen-stop exists, stop.")
   -- extract task ID from Monitor result (e.g. "Monitor started (task bwiijfk3w, …)")
   -- write it: echo $TASK_ID > ~/.voci/$SESSION_ID.task
   WriteMonitorTaskID(~/.voci, SESSION_ID, TASK_ID)
@@ -205,7 +209,8 @@ cleanupLock(SESSION_ID) = {
 
 classifyEvent :: Line → EventKind
 classifyEvent(line) =
-  | otherwise → VoiceEvent(line)
+  | line is valid JSON and line["type"] == "startup" → StartupEvent(line)
+  | otherwise                                         → VoiceEvent(line)
 
 extractInstruction :: Line → String
 extractInstruction(line) =
@@ -344,42 +349,32 @@ MONITOR_RESULT = Monitor(persistent=true,
 TASK_ID=$(echo "$MONITOR_RESULT" | python3 -c "import re,sys; m=re.search(r'task (\w+)', sys.stdin.read()); print(m.group(1) if m else '')")
 echo "$TASK_ID" > ~/.voci/${SESSION_ID}.task
 echo "[voci-listen] ensureMonitor: armed Monitor $TASK_ID, saved to ~/.voci/${SESSION_ID}.task"
-
-# Poll ~/.voci/$SESSION_ID.status for startup metadata (up to 30s, every 0.5s).
-# voci serve writes this file atomically after the tunnel is established.
-STATUS_FILE="${HOME}/.voci/${SESSION_ID}.status"
-DEADLINE=$(($(date +%s) + 30))
-while [ $(date +%s) -lt $DEADLINE ]; do
-  if [ -f "$STATUS_FILE" ]; then
-    LOCAL_URL=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(d['local_url'])")
-    SHARE_URL=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(d['share_url'])")
-    BEARER_TOKEN=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(d['bearer_token'])")
-    echo "[voci-listen] voci local URL: $LOCAL_URL"
-    echo "[voci-listen] voci share URL: $SHARE_URL"
-    echo "[voci-listen] Bearer token:   $BEARER_TOKEN"
-    break
-  fi
-  sleep 0.5
-done
 ```
 
 `voci serve --share --serve-port 0` starts the HTTP listener on an OS-assigned port,
 launches a Cloudflare Quick Tunnel, and writes startup metadata to
-`~/.voci/$SESSION_ID.status` (local URL, share URL, Bearer token). The binary also writes
-`~/.voci/$SESSION_ID.lock` (with real PID and port) once listening, and removes both
-files on clean exit. JSON event lines (containing `"rewritten"`) arrive on stdout and
-are delivered as Monitor events for execution.
+`~/.voci/$SESSION_ID.status` (for reconnect detection) and stdout (as a JSON startup event
+for Monitor display). The binary also writes `~/.voci/$SESSION_ID.lock` (with real PID and port)
+once listening, and removes both files on clean exit. JSON event lines — both startup events
+(`type":"startup") and voice events (containing `"rewritten"`) — arrive on stdout and are
+delivered as Monitor events.
 
 | Source | Destination | Action |
 |---|---|---|
-| JSON event (stdout) | Monitor wake-up | extract Rewritten → execute inline |
-| Startup metadata | `~/.voci/$SESSION_ID.status` | poll after arming → display to user |
+| JSON event (stdout, type=startup) | Monitor wake-up | display local URL, share URL, Bearer token to user |
+| JSON event (stdout, rewritten) | Monitor wake-up | extract Rewritten → execute inline |
+| Startup metadata | `~/.voci/$SESSION_ID.status` | file persists for reconnect detection |
 
 ### classifyEvent (per-line handler)
 
-On each Monitor wake-up, the line is a JSON voice event. Extract and execute:
+On each Monitor wake-up, classify the JSON line by its `type` field:
 
 ```
+# Startup event — display URL/token info to user
+if line["type"] == "startup":
+  displayStartup(line)
+  re-arm
+
 # Voice event — extract instruction and execute
 INSTRUCTION = extractInstruction(line)
 execute(INSTRUCTION)
@@ -407,9 +402,10 @@ using whatever tools are appropriate for the requested action.
 
 The Monitor `description` field is self-contained. When a Monitor event arrives in a
 new session (after `/clear` or context compaction), the description instructs Claude to
-parse the JSON line and extract the `rewritten` field — no skill call is needed.
-Startup metadata (local URL, share URL, Bearer token) is available in
-`~/.voci/$SESSION_ID.status` and does not appear as Monitor events.
+classify the JSON line by type: startup events (type="startup") display the URL/token
+to the user; voice events extract the `rewritten` field and execute it inline. No skill
+call is needed. Startup metadata also persists in `~/.voci/$SESSION_ID.status` for
+reconnect detection.
 
 ### cleanupLock
 

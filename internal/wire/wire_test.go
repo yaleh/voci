@@ -552,10 +552,81 @@ func TestServeStdoutOnlyEvents(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := stdout.String()
-	for _, forbidden := range []string{"voci local URL", "voci share URL", "Bearer token"} {
+	// Plain-text labels stay on stderr; stdout must contain the startup JSON event.
+	for _, forbidden := range []string{"voci local URL", "voci share URL", "Bearer token:"} {
 		if strings.Contains(out, forbidden) {
-			t.Errorf("stdout should not contain %q; got: %q", forbidden, out)
+			t.Errorf("stdout should not contain plain-text label %q; got: %q", forbidden, out)
 		}
+	}
+	if !strings.Contains(out, `"type":"startup"`) {
+		t.Errorf("stdout should contain startup event; got: %q", out)
+	}
+}
+
+func TestServeStartupEventOnStdout(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("true")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		`"type":"startup"`,
+		`"local_url":"http://127.0.0.1:`,
+		`"share_url":"https://voci-test.voci.example.com"`,
+		`"bearer_token":"tok"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stdout should contain %q; got: %q", want, out)
+		}
+	}
+}
+
+func TestServeStartupEventWithLockDir(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	dir := t.TempDir()
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("true")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok",
+			"--lock-dir=" + dir, "--session-id=startup-sess"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, `"type":"startup"`) {
+		t.Errorf("stdout should contain startup event; got: %q", out)
+	}
+	if !strings.Contains(out, `"local_url":"http://127.0.0.1:`) {
+		t.Errorf("stdout should contain local_url; got: %q", out)
 	}
 }
 

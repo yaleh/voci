@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -341,6 +342,20 @@ func run(
 				}
 				defer session.RemoveStatus(lockDir, sessionID) //nolint:errcheck
 			}
+			// Emit startup event to stdout so Monitor-event dispatch can display URL without
+			// a separate Bash poll. Written unconditionally whenever the tunnel is ready.
+			startupLine, _ := json.Marshal(struct {
+				Type        string `json:"type"`
+				LocalURL    string `json:"local_url"`
+				ShareURL    string `json:"share_url"`
+				BearerToken string `json:"bearer_token"`
+			}{
+				Type:        "startup",
+				LocalURL:    fmt.Sprintf("http://127.0.0.1:%d", port),
+				ShareURL:    publicURL,
+				BearerToken: token,
+			})
+			fmt.Fprintf(stdout, "%s\n", startupLine)
 			return srv.StartWithContextFromListener(tunnelCtx, ln)
 		}
 		return srv.StartWithContext(serveCtx, addr)

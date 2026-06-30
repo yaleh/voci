@@ -85,8 +85,10 @@ func tailLines(path string, n int) ([]string, error) {
 
 // sessionEntry is a minimal representation of a Claude Code JSONL session entry.
 type sessionEntry struct {
-	Type    string `json:"type"`
-	Message struct {
+	Type             string `json:"type"`
+	IsCompactSummary bool   `json:"isCompactSummary"`
+	PromptSource     string `json:"promptSource"`
+	Message          struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -137,6 +139,14 @@ func parseSessionSnippet(lines []string) string {
 			continue
 		}
 
+		// Skip system-injected turns: compaction summaries and system-prompt-source entries.
+		if entry.IsCompactSummary {
+			continue
+		}
+		if entry.PromptSource == "system" {
+			continue
+		}
+
 		if entry.Message.Content == nil {
 			continue
 		}
@@ -172,6 +182,11 @@ func parseSessionSnippet(lines []string) string {
 			// Try as a plain string (user messages)
 			var contentStr string
 			if err := json.Unmarshal(entry.Message.Content, &contentStr); err == nil {
+				// Skip task-notification and system-reminder injected user messages.
+				if strings.HasPrefix(contentStr, "<task-notification") ||
+					strings.HasPrefix(contentStr, "<system-reminder") {
+					continue
+				}
 				for _, id := range taskIDPattern.FindAllString(contentStr, -1) {
 					taskSet[id] = true
 				}

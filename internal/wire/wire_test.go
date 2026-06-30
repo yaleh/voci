@@ -1080,6 +1080,130 @@ func TestServeCleansUpLock(t *testing.T) {
 	}
 }
 
+// TestServeWritesStatus verifies that when --share, --lock-dir, and --session-id are
+// passed, voci serve writes a .status file containing the local URL, share URL, and
+// Bearer token after the tunnel is established.
+func TestServeWritesStatus(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	dir := t.TempDir()
+	statusCh := make(chan session.StatusEntry, 1)
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("sleep", "10")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		go func() {
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				entry, err := session.ReadStatus(dir, "status-sess")
+				if err == nil && entry.LocalURL != "" {
+					select {
+					case statusCh <- entry:
+					default:
+					}
+					cmd.Process.Kill() //nolint:errcheck
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			cmd.Process.Kill() //nolint:errcheck
+		}()
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=test-token",
+			"--lock-dir=" + dir, "--session-id=status-sess"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case entry := <-statusCh:
+		if !strings.Contains(entry.LocalURL, "http://127.0.0.1:") {
+			t.Errorf("LocalURL = %q, want http://127.0.0.1:<port>", entry.LocalURL)
+		}
+		if entry.ShareURL != "https://voci-test.voci.example.com" {
+			t.Errorf("ShareURL = %q, want https://voci-test.voci.example.com", entry.ShareURL)
+		}
+		if entry.BearerToken != "test-token" {
+			t.Errorf("BearerToken = %q, want test-token", entry.BearerToken)
+		}
+	default:
+		t.Error("status file was never written during serve")
+	}
+}
+
+// TestServeCleansUpStatus verifies that the .status file is removed once run() returns.
+func TestServeCleansUpStatus(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	dir := t.TempDir()
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("sleep", "0.3")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok",
+			"--lock-dir=" + dir, "--session-id=cleanup-sess"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(dir + "/cleanup-sess.status"); statErr == nil {
+		t.Error("expected status file to be removed after serve exits, but it still exists")
+	}
+}
+
+// TestServeStdoutOnlyEvents verifies that startup metadata (local URL, share URL,
+// Bearer token) is NOT written to stdout — it goes to stderr and the .status file.
+func TestServeStdoutOnlyEvents(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("true")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stdout.String()
+	for _, forbidden := range []string{"voci local URL", "voci share URL", "Bearer token"} {
+		if strings.Contains(out, forbidden) {
+			t.Errorf("stdout should not contain %q; got: %q", forbidden, out)
+		}
+	}
+}
+
 // ---- TestRun_ExitCode: table-driven tests for the Run() exit code contract ----
 
 func TestRun_ExitCode(t *testing.T) {

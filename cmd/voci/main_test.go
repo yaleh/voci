@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yaleh/voci/internal/daemon"
 	"github.com/yaleh/voci/internal/gate"
@@ -891,5 +892,109 @@ func TestServeCmd_ShareManagedTunnel(t *testing.T) {
 	}
 	if capturedCfg.TunnelDomain != "voci.example.com" {
 		t.Errorf("ManagedTunnelConfig.TunnelDomain = %q, want voci.example.com", capturedCfg.TunnelDomain)
+	}
+}
+
+// setCFEnv sets the four Cloudflare env vars so tests use the managed-tunnel path.
+func setCFEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLOUDFLARE_API_TOKEN", "fake-cf-token")
+	t.Setenv("CF_ACCOUNT_ID", "fake-account")
+	t.Setenv("CF_ZONE_ID", "fake-zone")
+	t.Setenv("CF_TUNNEL_DOMAIN", "voci.example.com")
+}
+
+// TestServeWritesLock verifies that when --lock-dir and --session-id are passed,
+// the serve path calls WriteLock in OnListening with the real PID and port > 0.
+func TestServeWritesLock(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	dir := t.TempDir()
+	lockCh := make(chan daemon.LockEntry, 1)
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg daemon.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		// Start a long-lived cmd; a background goroutine polls for the lock file
+		// (written in OnListening after Listen() starts) and kills the cmd once found.
+		cmd := exec.Command("sleep", "10")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		go func() {
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				entry, err := daemon.ReadLock(dir, "test-sess")
+				if err == nil && entry.Port > 0 {
+					select {
+					case lockCh <- entry:
+					default:
+					}
+					cmd.Process.Kill() //nolint:errcheck — triggers WatchTunnel → cancel
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			// Timeout safety: kill so the test does not hang.
+			cmd.Process.Kill() //nolint:errcheck
+		}()
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok",
+			"--lock-dir=" + dir, "--session-id=test-sess"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case entry := <-lockCh:
+		if entry.PID != os.Getpid() {
+			t.Errorf("lock PID = %d, want %d (current process)", entry.PID, os.Getpid())
+		}
+		if entry.Port <= 0 {
+			t.Errorf("lock Port = %d, want > 0", entry.Port)
+		}
+	default:
+		t.Error("lock file was never written during serve")
+	}
+}
+
+// TestServeCleansUpLock verifies that the lock file is removed once
+// StartWithContext returns (i.e. the deferred RemoveLock fires).
+func TestServeCleansUpLock(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	dir := t.TempDir()
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg daemon.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		// Short-lived cmd: gives the server time to start and call OnListening,
+		// then exits so WatchTunnel cancels the context and StartWithContext returns.
+		cmd := exec.Command("sleep", "0.3")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok",
+			"--lock-dir=" + dir, "--session-id=test-sess"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// After run() returns, the deferred daemon.RemoveLock must have fired.
+	if _, statErr := os.Stat(dir + "/test-sess.lock"); statErr == nil {
+		t.Error("expected lock file to be removed after serve exits, but it still exists")
 	}
 }

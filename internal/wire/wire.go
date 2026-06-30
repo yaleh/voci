@@ -106,6 +106,10 @@ func dispatch(
 	}
 }
 
+// testOnServerBuilt, when non-nil, is called right after the daemon.Server is
+// constructed in the --serve path. Only set this in tests.
+var testOnServerBuilt func(srv interface{})
+
 // firstNonEmpty returns the first non-empty string from the arguments.
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
@@ -287,6 +291,16 @@ func run(
 			Language:    cfg.Language,
 			EventWriter: os.Stdout,
 			EventPath:   *eventsPathFlag,
+		}
+		if cfg.ASRProvider == "gemini" && cfg.ASRAPIKey != "" {
+			apiKey := cfg.ASRAPIKey
+			asrModel := cfg.ASRModel
+			srv.MergedFn = func(ctx context.Context, key, audioPath, hintStr, language string, entities []string) (model.ActionProposal, error) {
+				return asr.TranscribeMerged(ctx, apiKey, audioPath, hintStr, language, asrModel, entities)
+			}
+		}
+		if testOnServerBuilt != nil {
+			testOnServerBuilt(srv)
 		}
 		srv.OnListening = func(a net.Addr) {
 			fmt.Fprintf(os.Stderr, "voci serve: listening on %s\n", a.String())

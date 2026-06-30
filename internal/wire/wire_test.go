@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yaleh/voci/internal/daemon"
 	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/daemon/tunnel"
 	"github.com/yaleh/voci/internal/gate"
@@ -973,6 +974,46 @@ func TestServeCmd_ShareManagedTunnel(t *testing.T) {
 	}
 	if capturedCfg.TunnelDomain != "voci.example.com" {
 		t.Errorf("ManagedTunnelConfig.TunnelDomain = %q, want voci.example.com", capturedCfg.TunnelDomain)
+	}
+}
+
+// TestServeGeminiUsesMergedFn verifies that when ASR_PROVIDER=gemini and
+// ASR_API_KEY are set, the --serve path wires srv.MergedFn to TranscribeMerged.
+func TestServeGeminiUsesMergedFn(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+	t.Setenv("ASR_PROVIDER", "gemini")
+	t.Setenv("ASR_API_KEY", "sk-test")
+
+	var capturedMergedFn daemon.MergedFnType
+	old := testOnServerBuilt
+	testOnServerBuilt = func(srvIface interface{}) {
+		if s, ok := srvIface.(*daemon.Server); ok {
+			capturedMergedFn = s.MergedFn
+		}
+	}
+	defer func() { testOnServerBuilt = old }()
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("true") // exits immediately → WatchTunnel cancels → server shuts down
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedMergedFn == nil {
+		t.Error("expected srv.MergedFn to be non-nil when ASR_PROVIDER=gemini and ASR_API_KEY is set")
 	}
 }
 

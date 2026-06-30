@@ -11,10 +11,56 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	intentmodel "github.com/yaleh/voci/internal/intent/model"
 )
+
+// mergedPromptTemplate is the system instruction for the merged pipeline call.
+// {ENTITIES_PLACEHOLDER} is replaced at runtime with the joined entity list.
+const mergedPromptTemplate = `You are a voice assistant pipeline. The following technical terms must appear EXACTLY as listed (case-sensitive) in the transcription.
+
+Example: if the audio contains the phrase "我们用 Sentry 来监控" and the known term is "Sentry", the correct transcript is:
+"我们用 Sentry 来监控"
+
+Similarly, if the audio says "run the vocal command" and known terms include "voci", transcribe as "voci", not "vocal".
+
+Known technical terms: {ENTITIES_PLACEHOLDER}
+
+Complete these three steps and return ONLY this JSON (no other text):
+1. Transcribe the audio, preserving ALL known technical terms EXACTLY as listed (case-sensitive)
+2. Rewrite the transcript into a clean, well-formed instruction (same language; do NOT translate; do NOT add unstated content; do NOT pick specific targets the speaker did not name; if genuinely too vague, start with [ambiguous])
+3. Classify the rewritten instruction into exactly one of: direct_prompt / backlog_action / query / ambiguous
+
+Return ONLY this JSON:
+{"transcript": "...", "rewritten": "...", "kind": "...", "confidence": 0.0}`
+
+// geminiMergedTestBaseURL, when non-empty, overrides the Gemini API base URL
+// for TranscribeMerged. Only set this in tests.
+var geminiMergedTestBaseURL string
 
 const DefaultGeminiModel = "gemini-2.5-flash"
 const DefaultGeminiAPIURLTemplate = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+// geminiGenConfig holds generation configuration for a Gemini request.
+type geminiGenConfig struct {
+	ResponseMimeType string `json:"response_mime_type"`
+}
+
+// geminiMergedRequest is the request payload for the merged pipeline call.
+// It includes generationConfig to force JSON output.
+type geminiMergedRequest struct {
+	Contents          []geminiContent `json:"contents"`
+	SystemInstruction *geminiContent  `json:"systemInstruction,omitempty"`
+	GenerationConfig  *geminiGenConfig `json:"generationConfig,omitempty"`
+}
+
+// geminiMergedResult is the inner JSON returned by the merged Gemini call.
+type geminiMergedResult struct {
+	Transcript string  `json:"transcript"`
+	Rewritten  string  `json:"rewritten"`
+	Kind       string  `json:"kind"`
+	Confidence float64 `json:"confidence"`
+}
 
 // Request structs
 
@@ -202,6 +248,99 @@ func ExtractEntities(hint string) []string {
 		return nil
 	}
 	return result
+}
+
+// TranscribeMerged performs a single Gemini Audio API call that combines
+// transcription, hinted correction, and intent classification into one request.
+// The merged system prompt is filled with entities, the audio is sent inline,
+// and the response is expected to be JSON with transcript/rewritten/kind/confidence.
+// model defaults to DefaultGeminiModel if empty.
+func TranscribeMerged(ctx context.Context, key, audioPath, hint, language, model string, entities []string) (intentmodel.ActionProposal, error) {
+	if model == "" {
+		model = DefaultGeminiModel
+	}
+
+	var apiURL string
+	if geminiMergedTestBaseURL != "" {
+		apiURL = geminiMergedTestBaseURL + "/v1beta/models/" + model + ":generateContent"
+	} else {
+		apiURL = strings.ReplaceAll(DefaultGeminiAPIURLTemplate, "{model}", model)
+	}
+
+	// Fill the prompt template.
+	entityStr := strings.Join(entities, ", ")
+	prompt := strings.ReplaceAll(mergedPromptTemplate, "{ENTITIES_PLACEHOLDER}", entityStr)
+
+	// Read audio file.
+	audioData, err := os.ReadFile(audioPath)
+	if err != nil {
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: read audio: %w", err)
+	}
+
+	payload := geminiMergedRequest{
+		SystemInstruction: &geminiContent{
+			Parts: []geminiPart{{Text: prompt}},
+		},
+		Contents: []geminiContent{
+			{
+				Parts: []geminiPart{
+					{InlineData: &geminiInlineData{
+						MimeType: "audio/wav",
+						Data:     base64.StdEncoding.EncodeToString(audioData),
+					}},
+				},
+			},
+		},
+		GenerationConfig: &geminiGenConfig{
+			ResponseMimeType: "application/json",
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", key)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: API error %d: %s", resp.StatusCode, bodyBytes)
+	}
+
+	var gemResp geminiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&gemResp); err != nil {
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: decode response: %w", err)
+	}
+
+	if len(gemResp.Candidates) == 0 || len(gemResp.Candidates[0].Content.Parts) == 0 {
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: empty candidates in response")
+	}
+
+	text := gemResp.Candidates[0].Content.Parts[0].Text
+
+	var result geminiMergedResult
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return intentmodel.ActionProposal{}, fmt.Errorf("asr: merged: unmarshal inner JSON %q: %w", text, err)
+	}
+
+	return intentmodel.ActionProposal{
+		RawTranscript: result.Transcript,
+		Rewritten:     result.Rewritten,
+		Kind:          intentmodel.Kind(result.Kind),
+		Confidence:    result.Confidence,
+	}, nil
 }
 
 // GeminiChat sends a multi-turn chat to the Gemini generateContent API.

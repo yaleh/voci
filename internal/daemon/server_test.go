@@ -858,6 +858,100 @@ func TestHandleTranscribeLogsTimings_HintedError(t *testing.T) {
 	}
 }
 
+// ---- Phase TASK-64: MergedFn path tests ----
+
+func TestHandleTranscribe_MergedPath(t *testing.T) {
+	mergedCalled := false
+	srv := &Server{
+		MergedFn: func(ctx context.Context, key, audioPath, hint, language string, entities []string) (model.ActionProposal, error) {
+			mergedCalled = true
+			return model.ActionProposal{
+				RawTranscript: "r",
+				Rewritten:     "w",
+				Kind:          model.KindDirectPrompt,
+				Confidence:    0.8,
+			}, nil
+		},
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+			t.Fatal("TranscribeFn should not be called when MergedFn is set")
+			return ""
+		},
+		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
+			t.Fatal("HintedFn should not be called when MergedFn is set")
+			return "", nil
+		},
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			t.Fatal("ClassifyFn should not be called when MergedFn is set")
+			return model.ActionProposal{}, nil
+		},
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !mergedCalled {
+		t.Error("expected MergedFn to be called")
+	}
+	var proposal model.ActionProposal
+	if err := json.NewDecoder(w.Body).Decode(&proposal); err != nil {
+		t.Fatalf("decode proposal: %v", err)
+	}
+	if proposal.Rewritten != "w" {
+		t.Errorf("Rewritten: want %q, got %q", "w", proposal.Rewritten)
+	}
+}
+
+func TestHandleTranscribe_FallbackPath(t *testing.T) {
+	classifyCalled := false
+	srv := &Server{
+		MergedFn: nil, // no merged fn → fall through to 3-step pipeline
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+			return "raw"
+		},
+		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
+			return raw, nil
+		},
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			classifyCalled = true
+			return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: rewritten}, nil
+		},
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !classifyCalled {
+		t.Error("expected ClassifyFn to be called in fallback path")
+	}
+}
+
+func TestHandleTranscribe_MergedError(t *testing.T) {
+	srv := &Server{
+		MergedFn: func(ctx context.Context, key, audioPath, hint, language string, entities []string) (model.ActionProposal, error) {
+			return model.ActionProposal{}, fmt.Errorf("merged pipeline failed")
+		},
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleContext_NilHintFnReturnsEmpty(t *testing.T) {
 	srv, _, _ := makeServer(t, "")
 	// HintFn is nil (not set)

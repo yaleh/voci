@@ -56,6 +56,21 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 
 	tStart := time.Now()
 
+	if s.MergedFn != nil {
+		tMerged := time.Now()
+		proposal, err := s.MergedFn(r.Context(), s.APIKey, tmpFile.Name(), hint, s.Language, entities)
+		mergedMs := time.Since(tMerged).Milliseconds()
+		if err != nil {
+			log.Printf("pipeline: merged: (error), total: %dms", time.Since(tStart).Milliseconds())
+			http.Error(w, "merged error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("pipeline: merged: %dms, total: %dms", mergedMs, time.Since(tStart).Milliseconds())
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(proposal)
+		return
+	}
+
 	t0 := tStart
 	raw := s.TranscribeFn(ctx, s.APIKey, tmpFile.Name(), "", s.Language, entities)
 	asrMs := time.Since(t0).Milliseconds()

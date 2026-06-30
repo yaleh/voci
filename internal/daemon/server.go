@@ -31,6 +31,10 @@ type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.Ch
 // ClassifyFn is the function signature for intent classification.
 type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error)
 
+// MergedFnType is the function signature for the merged pipeline call that replaces
+// TranscribeFn+HintedFn+ClassifyFn with a single Gemini Audio API call.
+type MergedFnType func(ctx context.Context, key, audioPath, hint, language string, entities []string) (model.ActionProposal, error)
+
 // Server is the daemon HTTP server that accepts audio uploads and writes events.
 type Server struct {
 	// TranscribeFn performs ASR transcription from an audio file path.
@@ -41,6 +45,9 @@ type Server struct {
 	RewriteFn RewriteFn
 	// ClassifyFn classifies the intent from rewritten text.
 	ClassifyFn ClassifyFn
+	// MergedFn, when non-nil, replaces TranscribeFn+HintedFn+ClassifyFn with a
+	// single Gemini Audio API call.
+	MergedFn MergedFnType
 	// BuildHintFn builds the context hint; called once per request.
 	BuildHintFn func() string
 	// HintFn returns the full assembled hint for the context preview panel (/api/context).

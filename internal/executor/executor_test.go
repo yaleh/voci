@@ -5,15 +5,15 @@ import (
 	"testing"
 
 	"github.com/yaleh/voci/internal/executor"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // --- Phase A ---
 
 func TestExecuteDirectPromptReturnsRewritten(t *testing.T) {
 	e := executor.NewDefaultExecutor(nil, false)
-	proposal := intent.ActionProposal{
-		Kind:      intent.KindDirectPrompt,
+	proposal := model.ActionProposal{
+		Kind:      model.KindDirectPrompt,
 		Rewritten: "Add a comment to main.go explaining the entry point",
 	}
 	result, err := e.Execute(proposal)
@@ -27,8 +27,8 @@ func TestExecuteDirectPromptReturnsRewritten(t *testing.T) {
 
 func TestExecuteAmbiguousReturnsError(t *testing.T) {
 	e := executor.NewDefaultExecutor(nil, false)
-	proposal := intent.ActionProposal{
-		Kind:      intent.KindAmbiguous,
+	proposal := model.ActionProposal{
+		Kind:      model.KindAmbiguous,
 		Rewritten: "maybe do something",
 	}
 	result, err := e.Execute(proposal)
@@ -49,8 +49,8 @@ func TestExecuteBacklogActionDryRunPrinted(t *testing.T) {
 		return "should not be called", nil
 	}
 	e := executor.NewDefaultExecutor(runner, false) // confirmed=false
-	proposal := intent.ActionProposal{
-		Kind:      intent.KindBacklogAction,
+	proposal := model.ActionProposal{
+		Kind:      model.KindBacklogAction,
 		Rewritten: "backlog task edit TASK-1 --status Done",
 	}
 	result, err := e.Execute(proposal)
@@ -72,8 +72,8 @@ func TestExecuteBacklogActionConfirmedRuns(t *testing.T) {
 		return "ok\n", nil
 	}
 	e := executor.NewDefaultExecutor(runner, true) // confirmed=true
-	proposal := intent.ActionProposal{
-		Kind:      intent.KindBacklogAction,
+	proposal := model.ActionProposal{
+		Kind:      model.KindBacklogAction,
 		Rewritten: "backlog task edit TASK-1 --status Done",
 	}
 	result, err := e.Execute(proposal)
@@ -97,8 +97,8 @@ func TestExecuteBacklogActionParseCommand(t *testing.T) {
 		return "", nil
 	}
 	e := executor.NewDefaultExecutor(runner, true)
-	proposal := intent.ActionProposal{
-		Kind:      intent.KindBacklogAction,
+	proposal := model.ActionProposal{
+		Kind:      model.KindBacklogAction,
 		Rewritten: "backlog task edit TASK-1 --status Done",
 	}
 	_, err := e.Execute(proposal)
@@ -126,8 +126,8 @@ func TestExecuteQueryRunsBacklogList(t *testing.T) {
 		return "TASK-1: Fix login\n", nil
 	}
 	e := executor.NewDefaultExecutor(runner, false)
-	proposal := intent.ActionProposal{
-		Kind:      intent.KindQuery,
+	proposal := model.ActionProposal{
+		Kind:      model.KindQuery,
 		Rewritten: "backlog task list",
 	}
 	result, err := e.Execute(proposal)
@@ -159,8 +159,8 @@ func TestExecuteQueryNoWriteSideEffects(t *testing.T) {
 		return "TASK-1: Fix login\n", nil
 	}
 	e := executor.NewDefaultExecutor(runner, false)
-	proposal := intent.ActionProposal{
-		Kind:      intent.KindQuery,
+	proposal := model.ActionProposal{
+		Kind:      model.KindQuery,
 		Rewritten: "backlog task list",
 	}
 	_, err := e.Execute(proposal)

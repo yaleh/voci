@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/ollama"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -41,8 +41,8 @@ func TestE2E_HappyPath_FullPipeline(t *testing.T) {
 	if proposal.RawTranscript != rawASR {
 		t.Errorf("RawTranscript: expected %q, got %q", rawASR, proposal.RawTranscript)
 	}
-	if proposal.Kind != intent.KindDirectPrompt {
-		t.Errorf("Kind: expected %q, got %q", intent.KindDirectPrompt, proposal.Kind)
+	if proposal.Kind != model.KindDirectPrompt {
+		t.Errorf("Kind: expected %q, got %q", model.KindDirectPrompt, proposal.Kind)
 	}
 	if proposal.Rewritten != rewritten {
 		t.Errorf("Rewritten: expected %q, got %q", rewritten, proposal.Rewritten)
@@ -61,8 +61,8 @@ func TestE2E_ASRError_Returns32603(t *testing.T) {
 		func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten", nil
 		},
-		func(ctx context.Context, r, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{}, nil
+		func(ctx context.Context, r, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{}, nil
 		},
 		"test-key",
 		func(ctx context.Context, messages []ollama.Message) (string, error) {

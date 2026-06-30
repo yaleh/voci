@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/ollama"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -31,9 +31,9 @@ func newDeterministicServer(rawASR, rewritten string) *Server {
 		func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return rewritten, nil
 		},
-		func(ctx context.Context, r, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{
-				Kind:      intent.KindDirectPrompt,
+		func(ctx context.Context, r, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{
+				Kind:      model.KindDirectPrompt,
 				Rewritten: r,
 			}, nil
 		},
@@ -67,7 +67,7 @@ func decodeResponse(t *testing.T, resp *http.Response) Response {
 }
 
 // decodeProposal extracts and JSON-decodes the inner ActionProposal from the MCP result content.
-func decodeProposal(t *testing.T, r Response) intent.ActionProposal {
+func decodeProposal(t *testing.T, r Response) model.ActionProposal {
 	t.Helper()
 	resultMap, ok := r.Result.(map[string]interface{})
 	if !ok {
@@ -85,7 +85,7 @@ func decodeProposal(t *testing.T, r Response) intent.ActionProposal {
 	if !ok || text == "" {
 		t.Fatal("content[0].text is missing or empty")
 	}
-	var proposal intent.ActionProposal
+	var proposal model.ActionProposal
 	if err := json.Unmarshal([]byte(text), &proposal); err != nil {
 		t.Fatalf("content[0].text is not valid JSON ActionProposal: %v", err)
 	}

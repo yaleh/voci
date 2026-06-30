@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	vocicontext "github.com/yaleh/voci/internal/context"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // Channel represents the delivery channel an adapter supports.
@@ -25,7 +25,7 @@ type Adapter interface {
 	// DiscoverContext collects context from the tool's environment.
 	DiscoverContext() (vocicontext.Source, error)
 	// Deliver sends the action proposal to the tool via an appropriate channel.
-	Deliver(intent.ActionProposal) error
+	Deliver(model.ActionProposal) error
 	// Capabilities returns the set of channels this adapter supports.
 	Capabilities() []Channel
 }

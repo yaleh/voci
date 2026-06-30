@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // GateResult holds the outcome of the human confirmation gate.
@@ -24,12 +24,12 @@ type GateResult struct {
 }
 
 // PrintSummary writes a formatted summary of proposal to w.
-func PrintSummary(w io.Writer, proposal intent.ActionProposal) {
+func PrintSummary(w io.Writer, proposal model.ActionProposal) {
 	fmt.Fprintf(w, "--- Intent Summary ---\n")
 	fmt.Fprintf(w, "Kind:       %s\n", proposal.Kind)
 	fmt.Fprintf(w, "Rewritten:  %s\n", proposal.Rewritten)
 	fmt.Fprintf(w, "Confidence: %.2f\n", proposal.Confidence)
-	if proposal.Kind == intent.KindAmbiguous {
+	if proposal.Kind == model.KindAmbiguous {
 		fmt.Fprintf(w, "Status:     AMBIGUOUS — clarification required before confirming.\n")
 		fmt.Fprintf(w, "Please provide a clarification for this intent:\n")
 	}
@@ -39,14 +39,14 @@ func PrintSummary(w io.Writer, proposal intent.ActionProposal) {
 // Run drives the interactive confirmation loop.
 // For ambiguous proposals it first collects a clarification line, then proceeds
 // with the standard [confirm/edit/discard] loop.
-func Run(r io.Reader, w io.Writer, proposal intent.ActionProposal) GateResult {
+func Run(r io.Reader, w io.Writer, proposal model.ActionProposal) GateResult {
 	scanner := bufio.NewScanner(r)
 	result := GateResult{}
 
 	PrintSummary(w, proposal)
 
 	// Ambiguous proposals require clarification before action selection.
-	if proposal.Kind == intent.KindAmbiguous {
+	if proposal.Kind == model.KindAmbiguous {
 		fmt.Fprintf(w, "> ")
 		if scanner.Scan() {
 			result.ClarifiedText = strings.TrimSpace(scanner.Text())

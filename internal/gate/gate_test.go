@@ -6,14 +6,14 @@ import (
 	"testing"
 
 	"github.com/yaleh/voci/internal/gate"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // Phase A tests
 
 func TestPrintProposalSummary(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindDirectPrompt,
+	proposal := model.ActionProposal{
+		Kind:       model.KindDirectPrompt,
 		Rewritten:  "add a login endpoint",
 		Confidence: 0.92,
 	}
@@ -21,8 +21,8 @@ func TestPrintProposalSummary(t *testing.T) {
 	gate.PrintSummary(&buf, proposal)
 	out := buf.String()
 
-	if !strings.Contains(out, string(intent.KindDirectPrompt)) {
-		t.Errorf("expected output to contain kind %q, got: %s", intent.KindDirectPrompt, out)
+	if !strings.Contains(out, string(model.KindDirectPrompt)) {
+		t.Errorf("expected output to contain kind %q, got: %s", model.KindDirectPrompt, out)
 	}
 	if !strings.Contains(out, "add a login endpoint") {
 		t.Errorf("expected output to contain rewritten text, got: %s", out)
@@ -33,8 +33,8 @@ func TestPrintProposalSummary(t *testing.T) {
 }
 
 func TestPrintProposalSummaryAmbiguous(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindAmbiguous,
+	proposal := model.ActionProposal{
+		Kind:       model.KindAmbiguous,
 		Rewritten:  "do something",
 		Confidence: 0.4,
 	}
@@ -53,8 +53,8 @@ func TestPrintProposalSummaryAmbiguous(t *testing.T) {
 // Phase B tests
 
 func TestRunConfirm(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindDirectPrompt,
+	proposal := model.ActionProposal{
+		Kind:       model.KindDirectPrompt,
 		Rewritten:  "add a login endpoint",
 		Confidence: 0.9,
 	}
@@ -67,8 +67,8 @@ func TestRunConfirm(t *testing.T) {
 }
 
 func TestRunEdit(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindDirectPrompt,
+	proposal := model.ActionProposal{
+		Kind:       model.KindDirectPrompt,
 		Rewritten:  "add a login endpoint",
 		Confidence: 0.9,
 	}
@@ -84,8 +84,8 @@ func TestRunEdit(t *testing.T) {
 }
 
 func TestRunDiscard(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindDirectPrompt,
+	proposal := model.ActionProposal{
+		Kind:       model.KindDirectPrompt,
 		Rewritten:  "add a login endpoint",
 		Confidence: 0.9,
 	}
@@ -98,8 +98,8 @@ func TestRunDiscard(t *testing.T) {
 }
 
 func TestRunInvalidThenConfirm(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindDirectPrompt,
+	proposal := model.ActionProposal{
+		Kind:       model.KindDirectPrompt,
 		Rewritten:  "add a login endpoint",
 		Confidence: 0.9,
 	}
@@ -114,8 +114,8 @@ func TestRunInvalidThenConfirm(t *testing.T) {
 // Phase C tests
 
 func TestGateAmbiguousForcesClarification(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindAmbiguous,
+	proposal := model.ActionProposal{
+		Kind:       model.KindAmbiguous,
 		Rewritten:  "do something vague",
 		Confidence: 0.3,
 	}
@@ -131,8 +131,8 @@ func TestGateAmbiguousForcesClarification(t *testing.T) {
 }
 
 func TestGateAmbiguousCannotDirectlyConfirm(t *testing.T) {
-	proposal := intent.ActionProposal{
-		Kind:       intent.KindAmbiguous,
+	proposal := model.ActionProposal{
+		Kind:       model.KindAmbiguous,
 		Rewritten:  "do something vague",
 		Confidence: 0.3,
 	}

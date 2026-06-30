@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	vocicontext "github.com/yaleh/voci/internal/context"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // GeminiCLIAdapter integrates voci with the Gemini CLI tool.
@@ -14,7 +14,7 @@ func (a *GeminiCLIAdapter) DiscoverContext() (vocicontext.Source, error) {
 	return nil, fmt.Errorf("GeminiCLIAdapter.DiscoverContext: %w", ErrNotImplemented)
 }
 
-func (a *GeminiCLIAdapter) Deliver(p intent.ActionProposal) error {
+func (a *GeminiCLIAdapter) Deliver(p model.ActionProposal) error {
 	return fmt.Errorf("GeminiCLIAdapter.Deliver: %w", ErrNotImplemented)
 }
 

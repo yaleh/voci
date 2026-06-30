@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 var _ Adapter = (*GeminiCLIAdapter)(nil)
@@ -33,9 +33,9 @@ func TestGeminiCLIAdapter_Capabilities_NonNil(t *testing.T) {
 	}
 }
 
-func dummyProposal() intent.ActionProposal {
-	return intent.ActionProposal{
-		Kind:      intent.KindDirectPrompt,
+func dummyProposal() model.ActionProposal {
+	return model.ActionProposal{
+		Kind:      model.KindDirectPrompt,
 		Rewritten: "test",
 	}
 }

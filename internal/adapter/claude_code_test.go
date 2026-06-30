@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	vocicontext "github.com/yaleh/voci/internal/context"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 var _ Adapter = (*ClaudeCodeAdapter)(nil)
@@ -68,7 +68,7 @@ func TestClaudeCodeAdapter_DiscoverContext_DefaultIsSessionSource(t *testing.T) 
 func TestClaudeCodeAdapter_Deliver_CallsInjector(t *testing.T) {
 	mi := &mockInjector{}
 	a := &ClaudeCodeAdapter{inj: mi}
-	err := a.Deliver(intent.ActionProposal{Rewritten: "hi"})
+	err := a.Deliver(model.ActionProposal{Rewritten: "hi"})
 	if err != nil {
 		t.Fatalf("Deliver() unexpected error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestClaudeCodeAdapter_Deliver_CallsInjector(t *testing.T) {
 func TestClaudeCodeAdapter_Deliver_InjectorError(t *testing.T) {
 	mi := &mockInjector{err: errors.New("fail")}
 	a := &ClaudeCodeAdapter{inj: mi}
-	err := a.Deliver(intent.ActionProposal{Rewritten: "hi"})
+	err := a.Deliver(model.ActionProposal{Rewritten: "hi"})
 	if err == nil {
 		t.Fatal("expected error from Deliver")
 	}
@@ -94,7 +94,7 @@ func TestClaudeCodeAdapter_Deliver_InjectorError(t *testing.T) {
 
 func TestClaudeCodeAdapter_Deliver_IntegratedNoOp(t *testing.T) {
 	a := &ClaudeCodeAdapter{mcpAddr: ":9473"}
-	err := a.Deliver(intent.ActionProposal{Rewritten: "hi"})
+	err := a.Deliver(model.ActionProposal{Rewritten: "hi"})
 	if err != nil {
 		t.Fatalf("Deliver() unexpected error in integrated mode: %v", err)
 	}

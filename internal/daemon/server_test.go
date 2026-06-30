@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -777,6 +778,83 @@ func TestStartWithContextFromListener(t *testing.T) {
 	case <-errCh:
 	case <-time.After(3 * time.Second):
 		t.Fatal("StartWithContextFromListener did not return within 3s after cancel")
+	}
+}
+
+// ---- Timing log tests ----
+
+func TestHandleTranscribeLogsTimings(t *testing.T) {
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(os.Stderr)
+
+	srv, _, _ := makeServer(t, "")
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logOutput := logBuf.String()
+	for _, want := range []string{"asr:", "hinted:", "rewrite:", "classify:", "total:"} {
+		if !strings.Contains(logOutput, want) {
+			t.Errorf("log missing %q; got: %s", want, logOutput)
+		}
+	}
+}
+
+func TestHandleTranscribeLogsTimings_NilRewrite(t *testing.T) {
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(os.Stderr)
+
+	srv, _, _ := makeServer(t, "")
+	srv.RewriteFn = nil
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logOutput := logBuf.String()
+	if !strings.Contains(logOutput, "rewrite: -") {
+		t.Errorf("log should contain 'rewrite: -'; got: %s", logOutput)
+	}
+}
+
+func TestHandleTranscribeLogsTimings_HintedError(t *testing.T) {
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(os.Stderr)
+
+	srv, _, _ := makeServer(t, "")
+	srv.HintedFn = func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
+		return "", fmt.Errorf("hinted failure")
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+
+	logOutput := logBuf.String()
+	if !strings.Contains(logOutput, "asr:") {
+		t.Errorf("log missing 'asr:'; got: %s", logOutput)
+	}
+	if !strings.Contains(logOutput, "hinted: (error)") {
+		t.Errorf("log missing 'hinted: (error)'; got: %s", logOutput)
 	}
 }
 

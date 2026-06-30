@@ -1,4 +1,4 @@
-package daemon
+package auth
 
 import (
 	"crypto/rand"

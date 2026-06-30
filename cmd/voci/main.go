@@ -18,6 +18,9 @@ import (
 	"github.com/yaleh/voci/internal/config"
 	vocicontext "github.com/yaleh/voci/internal/context"
 	"github.com/yaleh/voci/internal/daemon"
+	"github.com/yaleh/voci/internal/daemon/auth"
+	"github.com/yaleh/voci/internal/daemon/session"
+	"github.com/yaleh/voci/internal/daemon/tunnel"
 	"github.com/yaleh/voci/internal/executor"
 	"github.com/yaleh/voci/internal/gate"
 	"github.com/yaleh/voci/internal/inject"
@@ -97,7 +100,7 @@ type StartMCPServerFn func(addr string) error
 type BuildHintFn func(root string) string
 type StartDaemonFn func(addr, eventsPath string, buildHintFn func() string) error
 type StartServeFn func(addr string, eventWriter io.Writer, buildHintFn func() string) error
-type StartManagedTunnelFn func(ctx context.Context, cfg daemon.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error)
+type StartManagedTunnelFn func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error)
 
 // firstNonEmpty returns the first non-empty string from the arguments.
 func firstNonEmpty(vals ...string) string {
@@ -211,12 +214,12 @@ func run(
 		sessionID := *sessionIDFlag
 		if lockDir != "" {
 			if sessionID == "" {
-				sessionID = daemon.NewSessionID()
+				sessionID = session.NewSessionID()
 			}
-			if err := daemon.SweepStaleLocks(lockDir); err != nil {
+			if err := session.SweepStaleLocks(lockDir); err != nil {
 				return fmt.Errorf("sweep stale locks: %w", err)
 			}
-			defer daemon.RemoveLock(lockDir, sessionID) //nolint:errcheck
+			defer session.RemoveLock(lockDir, sessionID) //nolint:errcheck
 		}
 
 		// Default: build real Server with stdout as the event sink.
@@ -286,7 +289,7 @@ func run(
 			if lockDir != "" {
 				_, portStr, _ := net.SplitHostPort(a.String())
 				port, _ := strconv.Atoi(portStr)
-				if err := daemon.WriteLock(lockDir, sessionID, os.Getpid(), port); err != nil {
+				if err := session.WriteLock(lockDir, sessionID, os.Getpid(), port); err != nil {
 					fmt.Fprintf(os.Stderr, "voci serve: WriteLock: %v\n", err)
 				}
 			}
@@ -295,7 +298,7 @@ func run(
 			token := *shareAuthFlag
 			if token == "" {
 				var genErr error
-				token, genErr = daemon.GenerateToken()
+				token, genErr = auth.GenerateToken()
 				if genErr != nil {
 					return fmt.Errorf("generate token: %w", genErr)
 				}
@@ -324,7 +327,7 @@ func run(
 			var publicURL string
 			var tunnelErr error
 			if cfToken != "" && cfAccount != "" && cfZone != "" && cfDomain != "" {
-				managedCfg := daemon.ManagedTunnelConfig{
+				managedCfg := tunnel.ManagedTunnelConfig{
 					APIToken:     cfToken,
 					AccountID:    cfAccount,
 					ZoneID:       cfZone,
@@ -333,17 +336,17 @@ func run(
 				}
 				managedFn := startManagedTunnelFn
 				if managedFn == nil {
-					managedFn = daemon.StartManagedTunnel
+					managedFn = tunnel.StartManagedTunnel
 				}
 				tunnelCmd, publicURL, tunnelErr = managedFn(tunnelCtx, managedCfg, port, logW)
 			} else {
-				tunnelCmd, publicURL, tunnelErr = daemon.StartTunnel(tunnelCtx, port, logW)
+				tunnelCmd, publicURL, tunnelErr = tunnel.StartTunnel(tunnelCtx, port, logW)
 			}
 			if tunnelErr != nil {
 				return fmt.Errorf("--share: %w", tunnelErr)
 			}
 			defer tunnelCmd.Process.Kill()
-			daemon.WatchTunnel(tunnelCmd, tunnelCancel)
+			tunnel.WatchTunnel(tunnelCmd, tunnelCancel)
 			fmt.Fprintf(os.Stderr, "voci share URL: %s\n", publicURL)
 			fmt.Fprintf(os.Stderr, "Bearer token:   %s\n", token)
 			fmt.Fprintf(os.Stderr, "Note: audio and transcriptions route through Cloudflare infrastructure.\n")

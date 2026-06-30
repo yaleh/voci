@@ -1,6 +1,6 @@
 //go:build !linux
 
-package daemon
+package tunnel
 
 import "os/exec"
 

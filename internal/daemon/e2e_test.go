@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/intent"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -89,7 +90,7 @@ func TestE2E_Daemon_EmitWritesOneLine(t *testing.T) {
 
 	scanner := bufio.NewScanner(&buf)
 	scanner.Scan()
-	var ev Event
+	var ev session.Event
 	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
 		t.Fatalf("unmarshal event line: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestE2E_Emit_EventWriterJSONMatchesGrepFilter(t *testing.T) {
 	}
 
 	// Roundtrip sanity: value is preserved.
-	var ev Event
+	var ev session.Event
 	if err := json.Unmarshal([]byte(line), &ev); err != nil {
 		t.Fatalf("unmarshal emitted event: %v", err)
 	}

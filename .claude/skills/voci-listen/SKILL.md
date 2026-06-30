@@ -1,6 +1,6 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor with \"voci serve --share --serve-port $PORT\" (per-session OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). Each session writes a per-session lock file ~/.voci/<SESSION_ID>.lock; stale locks (dead PID) are swept on cold-start. Merges stderr into stdout via 2>&1 and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via reconnectGuard (re-arms Monitor on existing port if lock+PID still live). Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with \"voci serve --share --serve-port $PORT\" (per-session OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). Each session writes a per-session lock file ~/.voci/<SESSION_ID>.lock; stale locks (dead PID) are swept on cold-start. Merges stderr into stdout via 2>&1 and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on event arrival in any session, classify and dispatch directly without calling the skill again. Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop
 contracts:
   - grep: "Monitor(persistent=true"
@@ -23,7 +23,7 @@ contracts:
     target: self
   - grep: "TaskList"
     target: self
-  - grep: "re-invoke"
+  - not-grep: "re-invoke"
     target: self
   - grep: "voci share URL"
     target: self
@@ -45,68 +45,86 @@ listenLoop        :: () → Outcome          -- entry point
 stopStaleMon      :: () → ()               -- stop orphaned Monitor tasks + sweep stale lock files
 sweepStaleLocks   :: () → ()               -- remove ~/.voci/*.lock files whose PID is dead
 manageLock        :: () → (SESSION_ID, PORT) -- cold-start: generate UUID, start voci serve, write lock
-reconnectGuard    :: () → Bool             -- true if this session's lock+PID is still live (skip cold-start)
+reconnectGuard    :: () → (Bool, SESSION_ID, PORT) -- detect existing live lock to avoid cold-starting when voci serve process is still running
 stopSentinel      :: () → Bool             -- true when ~/.voci/.listen-stop exists
 classifyEvent     :: Line → EventKind      -- distinguish voice events from startup info lines
 extractInstruction :: Line → String        -- parse JSON, return Rewritten field; raw fallback
 cleanupLock       :: SESSION_ID → ()       -- remove ~/.voci/<SESSION_ID>.lock on shutdown
+ensureMonitor     :: (SESSION_ID, PORT) → ()   -- idempotent Monitor arm: TaskList check before Monitor call
+coldStart         :: () → Outcome              -- explicit invocation entry: full bootstrap → ensureMonitor
+onMonitorEvent    :: Line → Outcome            -- Monitor-event entry: classify → display or execute; no bootstrap
 
 data Outcome   = Listening | Stopped
 data EventKind = VoiceEvent String         -- JSON line with Rewritten field → execute inline
                | InfoMessage String        -- "voci share URL:" or "Bearer token:" → display to user
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Entry Point Guard: Cold-start vs. Reconnect
+-- Entry Point Guard: Cold-start vs. Monitor-event dispatch
 --
--- Cold-start (explicit /voci-listen invocation → λ() → listenLoop()):
+-- Cold-start (explicit /voci-listen invocation → λ() → coldStart()):
 --   Executes full bootstrap: stopStaleMon → sweepStaleLocks → checkStopSentinel
---   → manageLock (start voci serve, get PORT) → arm Monitor.
+--   → manageLock (start voci serve, get PORT) → ensureMonitor(SESSION_ID, PORT).
 --
--- Reconnect (Monitor event arrives after /clear or context compaction):
---   Skip bootstrap entirely. The Monitor description instructs a fresh session
---   to re-invoke /voci-listen rather than executing the raw event directly.
---   The Monitor description carries the re-invoke hint.
---   On re-invoke, reconnectGuard detects existing live lock → re-arms Monitor
---   on the same PORT without restarting voci serve or touching lock files.
+-- Monitor-event dispatch (Monitor fires in any session → onMonitorEvent(line)):
+--   The Monitor description carries full dispatch instructions; the fresh session
+--   classifies the line and acts directly. No skill bootstrap. No cold-start.
 -- ─────────────────────────────────────────────────────────────────────────────
 
-listenLoop() = {
+listenLoop() = coldStart()
+
+coldStart() = {
+  -- Explicit /voci-listen invocation path. Full bootstrap sequence.
   _: stopStaleMon(),    -- stop orphaned Monitor tasks AND sweep stale .lock files
 
   if (stopSentinel()):
     return: Stopped,
 
-  -- reconnectGuard: if this session already has a live lock file and the recorded
-  -- PID is still alive, skip cold-start and re-arm Monitor on the same PORT.
+  -- reconnectGuard: detect existing live lock to avoid cold-starting when a
+  -- voci serve process is still running.
   (live, SESSION_ID, PORT): reconnectGuard(),
   if (live):
-    goto: armMonitor(SESSION_ID, PORT),
+    ensureMonitor(SESSION_ID, PORT),
+    return: Listening,
 
   -- Cold-start: generate a UUID session ID, let OS pick a free port (--serve-port 0),
   -- capture the resolved port from stderr, write ~/.voci/<SESSION_ID>.lock.
   (SESSION_ID, PORT): manageLock(),
+  ensureMonitor(SESSION_ID, PORT),
+  return: Listening,
+}
 
-  armMonitor(SESSION_ID, PORT):
+onMonitorEvent(line) = {
+  -- Monitor-event dispatch path. No bootstrap, no restart.
+  if (stopSentinel()):
+    cleanupLock(SESSION_ID),
+    return: Stopped,
+  kind: classifyEvent(line),
+  | InfoMessage text → display(text),
+  | VoiceEvent line  → execute(extractInstruction(line)),
+  return: Listening,
+}
+
+ensureMonitor(SESSION_ID, PORT) = {
+  -- Idempotency check: avoid arming a duplicate Monitor if one is already live.
+  -- Step 1: Call TaskList to enumerate all active background tasks.
+  -- Step 2: Filter entries whose description contains "voci-listen".
+  -- Step 3: If any live match found, return early — do NOT call Monitor again.
+  --         On TaskList failure, treat as "no live Monitor" and proceed to arm.
+  tasks: TaskList(),
+  if (any task in tasks where "voci-listen" in task.description):
+    echo "[voci-listen] ensureMonitor: live Monitor already exists — skipping arm"
+    return: (),
+
+  -- No live Monitor found: arm a new persistent Monitor on PORT.
   -- Arm persistent Monitor on voci serve --share with the per-session port.
   -- The command merges stderr→stdout (2>&1) and grep-filters to three line types:
   --   1. JSON event lines      (contain "rewritten") → voice instruction to execute
   --   2. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
   --   3. "Bearer token:   …"  (from stderr)         → auth token to display
-  -- On wake-up: classifyEvent decides whether to display or execute.
-  -- The description carries a re-invoke hint for cross-/clear recovery.
-  event: Monitor(persistent=true,
-           command="voci serve --share --serve-port $PORT 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
-           description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"),
-
-  if (stopSentinel()):
-    cleanupLock(SESSION_ID),
-    return: Stopped,
-
-  kind: classifyEvent(event),
-  | InfoMessage text → display(text),   -- show URL / token to user, do NOT execute
-  | VoiceEvent line  → execute(extractInstruction(line)),
-
-  return: listenLoop(),   -- re-arm for the next event (voci serve is persistent)
+  -- On wake-up: onMonitorEvent classifies and dispatches directly. No skill restart.
+  Monitor(persistent=true,
+    command="voci serve --share --serve-port $PORT 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
+    description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci share URL:' or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction.")
 }
 
 stopStaleMon() = {
@@ -135,9 +153,10 @@ manageLock() = {
 }
 
 reconnectGuard() = {
-  -- Check whether SESSION_ID env var (or a known lock file) points to a still-live session.
-  -- If ~/.voci/$SESSION_ID.lock exists and kill -0 $recorded_pid succeeds:
+  -- Detect whether a voci serve process is still running from a previous cold-start.
+  -- Scans ~/.voci/*.lock files; if exactly one has a live PID (kill -0 succeeds):
   --   return (live=true, SESSION_ID, PORT_from_lock)
+  -- This avoids repeating cold-start work when the process is already alive.
   -- Otherwise:
   --   return (live=false, "", 0)
 }
@@ -235,8 +254,8 @@ echo "[voci-listen] manageLock: session=$SESSION_ID pid=$VOCI_PID port=$PORT loc
 
 ### reconnectGuard
 
-On Monitor re-invoke (new session after `/clear`), check if the current session's
-lock file is still valid:
+On cold-start, check if a voci serve process is still running from a previous session.
+Scans lock files to detect a live PID so that cold-start can be skipped:
 
 ```bash
 VOCI_DIR="${HOME}/.voci"
@@ -264,14 +283,25 @@ else
 fi
 ```
 
-### Arm Monitor
+### ensureMonitor
 
-After `manageLock` or `reconnectGuard`, arm the persistent Monitor using the resolved `$PORT`:
+Called after `manageLock` or `reconnectGuard`. First performs a `TaskList` idempotency
+check: if any active task already has `"voci-listen"` in its description, skip arming and
+return immediately. On `TaskList` failure, treat as "no live Monitor" and proceed to arm.
+If no live Monitor is found, arms a new persistent Monitor using the resolved `$PORT`:
 
 ```
+# Idempotency check (harness tool calls):
+tasks = TaskList()
+for task in tasks:
+  if "voci-listen" in task.description:
+    echo "[voci-listen] ensureMonitor: live Monitor already exists — skipping arm"
+    return
+
+# Arm new Monitor:
 Monitor(persistent=true,
   command="voci serve --share --serve-port $PORT 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
-  description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"
+  description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci share URL:' or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction."
 )
 ```
 
@@ -320,14 +350,11 @@ using whatever tools are appropriate for the requested action.
 
 ### Cross-/clear self-recovery
 
-The Monitor `description` field contains the re-invoke hint:
-
-> "… if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"
-
-When Claude Code starts a new session and the Monitor fires, the description instructs
-the fresh session to run `/voci-listen` before acting on the event line. On re-invoke,
-`reconnectGuard` detects the live lock file and re-arms the Monitor on the same `PORT`
-without restarting `voci serve` or touching lock files.
+The Monitor `description` field is self-contained. When a Monitor event arrives in a
+new session (after `/clear` or context compaction), the description instructs Claude to
+classify the line and act directly — no skill call is needed. If the line
+starts with `"voci share URL:"` or `"Bearer token:"`, display it to the user.
+Otherwise, extract the `rewritten` field from the JSON and execute it inline.
 
 ### cleanupLock
 

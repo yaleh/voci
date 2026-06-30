@@ -89,6 +89,8 @@
   var isRecording = false;
   var chunks = [], recorder = null, mediaStream = null;
   var timerSecs = 0, timerInterval = null;
+  var insertAt = 0;        // cursor position captured just before processing begins
+  var statusTimeout = null; // timer for auto-hiding #voci-status
   // VAD state
   var audioCtx = null, analyser = null, vadRafId = null;
   var silenceStart = null, recStartMs = 0;
@@ -124,6 +126,8 @@
   var processingDots   = $('processing-dots');
   var composeEl        = $('voci-compose');
   var timerEl          = $('timer-str');
+  var statusEl         = $('voci-status');
+  var clearBtn         = $('clear-btn');
 
   function d(el, v) { el.style.display = v; }
 
@@ -153,6 +157,22 @@
     sendBtn.style.borderColor = has ? '#1a3050' : '#0f1522';
     sendBtn.style.color       = has ? '#5b9cf6' : '#252f42';
     sendBtn.style.cursor      = has ? 'pointer' : 'default';
+  }
+
+  function showStatus(msg) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.style.display = 'block';
+    if (statusTimeout) clearTimeout(statusTimeout);
+    statusTimeout = setTimeout(function () {
+      statusEl.style.display = 'none';
+      statusTimeout = null;
+    }, 2000);
+  }
+
+  function updateClearBtn() {
+    if (!clearBtn) return;
+    clearBtn.style.display = composeEl.value.length > 0 ? 'inline-block' : 'none';
   }
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -385,6 +405,8 @@
       setPhase('idle');
       return;
     }
+    // Capture where to insert the transcription result in compose.
+    insertAt = (composeEl.selectionStart != null) ? composeEl.selectionStart : composeEl.value.length;
     setPhase('processing');
     if (recorder && recorder.state === 'recording') recorder.stop();
   }
@@ -399,8 +421,21 @@
         var rew   = p.Rewritten || '';
         var ambig = kind === 'ambiguous';
 
-        composeEl.value = ambig ? '' : rew;
-        updateSendBtn();
+        if (ambig) {
+          showStatus('未识别到有效内容');
+        } else if (rew) {
+          // Append at saved cursor position, adding a space separator if needed.
+          var before = composeEl.value.slice(0, insertAt);
+          var after  = composeEl.value.slice(insertAt);
+          var sep    = (before.length > 0 && before[before.length - 1] !== ' ') ? ' ' : '';
+          var inserted = sep + rew;
+          composeEl.value = before + inserted + after;
+          // Move cursor to end of inserted text.
+          var newPos = insertAt + inserted.length;
+          composeEl.setSelectionRange(newPos, newPos);
+          updateSendBtn();
+          updateClearBtn();
+        }
         setPhase('idle');
       })
       .catch(function (e) {
@@ -429,6 +464,7 @@
         if (localMessages.length > 40) localMessages.splice(0, localMessages.length - 40);
         composeEl.value = '';
         updateSendBtn();
+        updateClearBtn();
         setPhase('idle');
         // Re-render immediately with current hint so local messages appear at once,
         // without waiting for a hint change on the next /api/context poll.
@@ -448,7 +484,7 @@
     contextChevron.textContent = contextExpanded ? '▾' : '▸';
   });
 
-  composeEl.addEventListener('input', updateSendBtn);
+  composeEl.addEventListener('input', function () { updateSendBtn(); updateClearBtn(); });
   composeEl.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -459,6 +495,13 @@
   sendBtn.addEventListener('click', function () {
     var t = composeEl.value.trim();
     if (t) sendText(t, 'direct_prompt');
+  });
+
+  clearBtn.addEventListener('click', function () {
+    composeEl.value = '';
+    composeEl.focus();
+    updateSendBtn();
+    updateClearBtn();
   });
 
   $('mic-btn').addEventListener('mousedown', startRec);
@@ -493,10 +536,21 @@
     }
   });
 
+  // ── Test helpers (used only by Playwright e2e tests) ─────
+  // Exposed on window so tests can invoke processAudio without a real microphone.
+  window.__voiceTest = {
+    processAudio: processAudio,
+    // Simulate what stopRec does before processAudio: capture cursor position.
+    captureInsertAt: function () {
+      insertAt = (composeEl.selectionStart != null) ? composeEl.selectionStart : composeEl.value.length;
+    },
+  };
+
   // ── Init ─────────────────────────────────────────────────
 
   setPhase('idle');
   updateSendBtn();
+  updateClearBtn();
   initAuth();
   setInterval(function () {
     var s = Math.floor((Date.now() - lastRefresh) / 1000);

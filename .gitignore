@@ -2,4 +2,10 @@
 testdata/
 .voci/
 context_cache.json
-/docs/**.pyc
+docs/**/*.pyc
+
+# tool caches / runtime artifacts
+.archguard/
+.claude/review/
+backlog/.caps/
+backlog/tasks/.scanner.lock

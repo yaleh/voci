@@ -64,6 +64,7 @@ func StartTunnel(ctx context.Context, port int, logW io.Writer) (*exec.Cmd, stri
 	}
 
 	cmd := exec.CommandContext(ctx, bin, "tunnel", "--url", fmt.Sprintf("http://127.0.0.1:%d", port))
+	applyChildAttrs(cmd)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return nil, "", fmt.Errorf("pipe stderr: %w", err)

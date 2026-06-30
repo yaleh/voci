@@ -186,6 +186,9 @@ func run(
 
 	// --serve: Monitor-host mode; writes one JSON event line per utterance to stdout.
 	if *serveFlag {
+		serveCtx, serveCancel := daemon.WithSignalCancel(context.Background())
+		defer serveCancel()
+
 		addr := fmt.Sprintf("%s:%d", *serveHostFlag, *servePortFlag)
 		perCallHint := func() string {
 			cwd, err := os.Getwd()
@@ -261,6 +264,9 @@ func run(
 			EventWriter: os.Stdout,
 			EventPath:   *eventsPathFlag,
 		}
+		srv.OnListening = func(a net.Addr) {
+			fmt.Fprintf(os.Stderr, "voci serve: listening on %s\n", a.String())
+		}
 		if *shareFlag {
 			token := *shareAuthFlag
 			if token == "" {
@@ -279,7 +285,7 @@ func run(
 			if convErr != nil {
 				return fmt.Errorf("parse port %q: %w", portStr, convErr)
 			}
-			tunnelCtx, tunnelCancel := context.WithCancel(context.Background())
+			tunnelCtx, tunnelCancel := context.WithCancel(serveCtx)
 			defer tunnelCancel()
 			tunnelLogW, tunnelLogClose := openCloudflaredLog()
 			defer tunnelLogClose()
@@ -319,7 +325,7 @@ func run(
 			fmt.Fprintf(os.Stderr, "Note: audio and transcriptions route through Cloudflare infrastructure.\n")
 			return srv.StartWithContext(tunnelCtx, addr)
 		}
-		return srv.Start(addr)
+		return srv.StartWithContext(serveCtx, addr)
 	}
 
 	// --daemon: start HTTP daemon accepting audio uploads, no --file required

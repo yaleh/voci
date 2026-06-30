@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -653,7 +654,7 @@ func TestStartWithContext_StopsWhenContextCancelled(t *testing.T) {
 
 	started := make(chan struct{})
 	errCh := make(chan error, 1)
-	srv.OnListening = func() { close(started) }
+	srv.OnListening = func(net.Addr) { close(started) }
 
 	go func() {
 		errCh <- srv.StartWithContext(ctx, "127.0.0.1:0")
@@ -671,6 +672,66 @@ func TestStartWithContext_StopsWhenContextCancelled(t *testing.T) {
 		// good: server returned after cancel
 	case <-time.After(3 * time.Second):
 		t.Fatal("StartWithContext did not return within 3s after context cancel")
+	}
+}
+
+func TestStartWithContext_Port0_AssignsEphemeralPort(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	addrCh := make(chan net.Addr, 1)
+	srv.OnListening = func(a net.Addr) { addrCh <- a }
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.StartWithContext(ctx, "127.0.0.1:0")
+	}()
+
+	var resolved net.Addr
+	select {
+	case resolved = <-addrCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server did not start within 3s")
+	}
+
+	_, portStr, err := net.SplitHostPort(resolved.String())
+	if err != nil {
+		t.Fatalf("SplitHostPort: %v", err)
+	}
+	if portStr == "0" || portStr == "" {
+		t.Errorf("expected non-zero ephemeral port, got %q", portStr)
+	}
+
+	// Verify the server actually responds on that port.
+	resp, err := http.Get("http://" + resolved.String() + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 500 {
+		t.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	cancel()
+}
+
+func TestStartWithContext_ExplicitPortConflict_ReturnsError(t *testing.T) {
+	// Bind a port so it is already in use.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("pre-bind: %v", err)
+	}
+	defer ln.Close()
+	addr := ln.Addr().String()
+
+	srv, _, _ := makeServer(t, "")
+	err = srv.StartWithContext(context.Background(), addr)
+	if err == nil {
+		t.Fatal("expected error for already-in-use port, got nil")
+	}
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Errorf("expected 'already in use' in error, got: %v", err)
 	}
 }
 

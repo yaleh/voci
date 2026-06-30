@@ -4,12 +4,15 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/yaleh/voci/internal/asr"
 	"github.com/yaleh/voci/internal/intent"
@@ -61,8 +64,9 @@ type Server struct {
 	// "Authorization: Bearer <token>". Static file routes are unaffected.
 	BearerToken string
 	// OnListening, if non-nil, is called once the TCP listener is ready.
-	// Used in tests to synchronise startup.
-	OnListening func()
+	// The resolved net.Addr is passed so callers can discover the assigned port
+	// when --serve-port 0 is used for OS-assigned ephemeral ports.
+	OnListening func(net.Addr)
 }
 
 // Handler returns an http.Handler routing the voice endpoints and static UI.
@@ -84,13 +88,23 @@ func (s *Server) Start(addr string) error {
 // StartWithContext starts the HTTP server and shuts it down gracefully when ctx
 // is cancelled. This allows WatchTunnel to propagate a cloudflared exit to the
 // server: cancel the context → server stops → voci serve exits → monitor re-arms.
+//
+// When the port is explicitly non-zero and already bound, returns an error containing
+// "already in use" so callers can suggest --serve-port 0 for automatic port selection.
 func (s *Server) StartWithContext(ctx context.Context, addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
+		var opErr *net.OpError
+		if errors.As(err, &opErr) {
+			if errors.Is(opErr.Err, syscall.EADDRINUSE) {
+				_, portStr, _ := net.SplitHostPort(addr)
+				return fmt.Errorf("port %s is already in use; use --serve-port 0 for automatic port selection: %w", portStr, err)
+			}
+		}
 		return err
 	}
 	if s.OnListening != nil {
-		s.OnListening()
+		s.OnListening(ln.Addr())
 	}
 	hs := &http.Server{Handler: s.Handler()}
 	go func() {

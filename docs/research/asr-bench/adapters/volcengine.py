@@ -48,16 +48,14 @@ class VolcengineASRAdapter(ModelAdapter):
     supports_hints = True
 
     def __init__(self):
-        self.app_id = (os.environ.get("VOLCENGINE_APP_ID")
-                       or _from_config("volcengine_app_id"))
-        self.access_token = (os.environ.get("VOLCENGINE_ACCESS_TOKEN")
-                             or _from_config("volcengine_access_token"))
+        self.api_key = (os.environ.get("VOLCENGINE_API_KEY")
+                        or _from_config("volcengine_api_key"))
         self.audio_base_url = (os.environ.get("VOLCENGINE_AUDIO_BASE_URL")
                                or _from_config("volcengine_audio_base_url")).rstrip("/")
-        if not self.app_id or not self.access_token:
+        if not self.api_key:
             raise RuntimeError(
-                "Volcengine credentials missing. Set volcengine_app_id and "
-                "volcengine_access_token in ~/.config/voci/config-volcengine.yaml"
+                "Volcengine credentials missing. Set volcengine_api_key "
+                "in ~/.config/voci/config-volcengine.yaml"
             )
 
     @property
@@ -66,8 +64,7 @@ class VolcengineASRAdapter(ModelAdapter):
 
     def _headers(self, task_id: str, include_sequence: bool = False) -> dict:
         h = {
-            "X-Api-App-Key":    self.app_id,
-            "X-Api-Access-Key": self.access_token,
+            "X-Api-Key":        self.api_key,
             "X-Api-Resource-Id": RESOURCE_ID,
             "X-Api-Request-Id": task_id,
             "Content-Type": "application/json",
@@ -177,7 +174,7 @@ if __name__ == "__main__":
         print(f"[FAIL] {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[OK] credentials loaded: app_id={adapter.app_id[:4]}***")
+    print(f"[OK] credentials loaded: api_key={adapter.api_key[:8]}***")
     print(f"[OK] audio_base_url={adapter.audio_base_url}")
 
     if not args.wav:

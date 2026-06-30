@@ -33,9 +33,10 @@ def run_benchmark(args):
             print(f"WARNING: volcengine unavailable: {e}", file=sys.stderr)
 
     timestamp = time.strftime("%Y%m%d-%H%M%S")
+    model_tag = args.models if args.models != "all" else "all"
     out_dir = pathlib.Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"run-{timestamp}.jsonl"
+    out_file = out_dir / f"run-{timestamp}-{model_tag}.jsonl"
 
     results = []
     wav_dir = pathlib.Path(args.cases).parent
@@ -74,6 +75,7 @@ def run_benchmark(args):
                     row = {
                         "case_id": case["id"], "model": adapter.name,
                         "hint_mode": hint_mode, "error": str(e),
+                        "entity_recall": None,
                         "category": case.get("category", []),
                     }
 

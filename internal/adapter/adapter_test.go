@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	vocicontext "github.com/yaleh/voci/internal/context"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 func TestChannelConstants(t *testing.T) {
@@ -28,7 +28,7 @@ func (m *mockAdapter) DiscoverContext() (vocicontext.Source, error) {
 	return nil, nil
 }
 
-func (m *mockAdapter) Deliver(p intent.ActionProposal) error {
+func (m *mockAdapter) Deliver(p model.ActionProposal) error {
 	return nil
 }
 

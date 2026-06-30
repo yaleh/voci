@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // Phase A: static resource serving via go:embed + FileServerFS
@@ -81,7 +81,7 @@ func TestHandler_APIRoutesNotShadowed(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
-	var proposal intent.ActionProposal
+	var proposal model.ActionProposal
 	if err := json.NewDecoder(resp.Body).Decode(&proposal); err != nil {
 		t.Fatalf("decode ActionProposal: %v", err)
 	}

@@ -5,7 +5,7 @@ import (
 
 	vocicontext "github.com/yaleh/voci/internal/context"
 	"github.com/yaleh/voci/internal/inject"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // ClaudeCodeAdapter integrates voci with the Claude Code CLI tool.
@@ -28,7 +28,7 @@ func (a *ClaudeCodeAdapter) DiscoverContext() (vocicontext.Source, error) {
 	return a.src, nil
 }
 
-func (a *ClaudeCodeAdapter) Deliver(p intent.ActionProposal) error {
+func (a *ClaudeCodeAdapter) Deliver(p model.ActionProposal) error {
 	if a.mcpAddr != "" {
 		return nil // integrated mode: MCP server handles end-to-end
 	}

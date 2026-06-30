@@ -25,6 +25,7 @@ import (
 	"github.com/yaleh/voci/internal/gate"
 	"github.com/yaleh/voci/internal/inject"
 	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/mcp"
 	"github.com/yaleh/voci/internal/ollama"
 	"github.com/yaleh/voci/internal/output"
@@ -65,7 +66,7 @@ func dispatch(
 	injectFn InjectFn,
 	startMCPServerFn StartMCPServerFn,
 	buildHintFn BuildHintFn,
-	deliverFn func(intent.ActionProposal) error,
+	deliverFn func(model.ActionProposal) error,
 	startDaemonFn StartDaemonFn,
 	startServeFn StartServeFn,
 	startManagedTunnelFn StartManagedTunnelFn,
@@ -92,9 +93,9 @@ func dispatch(
 // Dependency types for testing
 type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string
 type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error)
-type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
-type GateFn func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult
-type ExecuteFn func(proposal intent.ActionProposal) (string, error)
+type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error)
+type GateFn func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult
+type ExecuteFn func(proposal model.ActionProposal) (string, error)
 type InjectFn func(text string) error
 type StartMCPServerFn func(addr string) error
 type BuildHintFn func(root string) string
@@ -151,7 +152,7 @@ func run(
 	injectFn InjectFn,
 	startMCPServerFn StartMCPServerFn,
 	buildHintFn BuildHintFn,
-	deliverFn func(intent.ActionProposal) error,
+	deliverFn func(model.ActionProposal) error,
 	startDaemonFn StartDaemonFn,
 	startServeFn StartServeFn,
 	startManagedTunnelFn StartManagedTunnelFn,
@@ -253,7 +254,7 @@ func run(
 		}
 		// --serve path intentionally skips Rewrite (RewriteFn stays nil so server.go's nil-guard skips it)
 		if classifyFn == nil {
-			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
 				return intent.Classify(ctx, rewritten, fullContext, chat)
 			}
 		}
@@ -398,7 +399,7 @@ func run(
 			rewriteFnOpt = pipeline.Rewrite
 		}
 		if classifyFn == nil {
-			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
 				return intent.Classify(ctx, rewritten, fullContext, chat)
 			}
 		}
@@ -460,7 +461,7 @@ func run(
 				rewriteFnOpt = pipeline.Rewrite
 			}
 			if classifyFn == nil {
-				classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+				classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
 					return intent.Classify(ctx, rewritten, fullContext, chat)
 				}
 			}
@@ -521,7 +522,7 @@ func run(
 		rewriteFnOpt = pipeline.Rewrite
 	}
 	if classifyFn == nil {
-		classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+		classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
 			return intent.Classify(ctx, rewritten, fullContext, chat)
 		}
 	}
@@ -529,7 +530,7 @@ func run(
 		gateFn = gate.Run
 	}
 	if executeFn == nil {
-		executeFn = func(p intent.ActionProposal) (string, error) {
+		executeFn = func(p model.ActionProposal) (string, error) {
 			ex := &executor.DefaultExecutor{CmdRunner: defaultCmdRunner, Confirmed: true}
 			return ex.Execute(p)
 		}
@@ -577,7 +578,7 @@ func run(
 	}
 
 	// Stage 6b: Session/input routing
-	if *inputFlag == "direct" && (proposal.Kind == intent.KindDirectPrompt || proposal.Kind == intent.KindQuery) {
+	if *inputFlag == "direct" && (proposal.Kind == model.KindDirectPrompt || proposal.Kind == model.KindQuery) {
 		if deliverFn != nil {
 			return deliverFn(proposal)
 		} else if injectFn != nil {

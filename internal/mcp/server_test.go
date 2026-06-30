@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/ollama"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -164,9 +164,9 @@ func TestServer_ToolsCall_HappyPath(t *testing.T) {
 		func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten", nil
 		},
-		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{
-				Kind:      intent.KindDirectPrompt,
+		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{
+				Kind:      model.KindDirectPrompt,
 				Rewritten: "rewritten",
 			}, nil
 		},
@@ -212,7 +212,7 @@ func TestServer_ToolsCall_HappyPath(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &proposal); err != nil {
 		t.Fatalf("content[0].text is not valid JSON: %v", err)
 	}
-	if proposal["Kind"] != string(intent.KindDirectPrompt) {
+	if proposal["Kind"] != string(model.KindDirectPrompt) {
 		t.Errorf("expected kind=direct_prompt, got: %v", proposal["Kind"])
 	}
 }
@@ -263,8 +263,8 @@ func TestServer_ToolsCall_ASRError(t *testing.T) {
 		func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten", nil
 		},
-		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{}, nil
+		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{}, nil
 		},
 		"test-key",
 		func(ctx context.Context, messages []ollama.Message) (string, error) {
@@ -303,8 +303,8 @@ func TestToolsCallPassesLanguage(t *testing.T) {
 		func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return hinted, nil
 		},
-		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: rewritten}, nil
+		func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: rewritten}, nil
 		},
 		"test-key",
 		func(ctx context.Context, messages []ollama.Message) (string, error) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/pipeline"
 )
 
@@ -35,9 +35,9 @@ func TestPlaywrightSetup(t *testing.T) {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten text", nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{
-				Kind:      intent.KindDirectPrompt,
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{
+				Kind:      model.KindDirectPrompt,
 				Rewritten: rewritten,
 			}, nil
 		},

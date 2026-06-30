@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/yaleh/voci/internal/daemon/session"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/pipeline"
 )
 
@@ -37,9 +37,9 @@ func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten text", nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{
-				Kind:       intent.KindDirectPrompt,
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{
+				Kind:       model.KindDirectPrompt,
 				Rewritten:  rewritten,
 				Confidence: 0.95,
 			}, nil
@@ -71,8 +71,8 @@ func TestHandleTranscribePassesLanguage(t *testing.T) {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return hinted, nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: rewritten}, nil
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: rewritten}, nil
 		},
 	}
 	h := srv.Handler()
@@ -129,13 +129,13 @@ func TestHandler_RunsPipelineAndReturnsProposalJSON(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var proposal intent.ActionProposal
+	var proposal model.ActionProposal
 	if err := json.NewDecoder(w.Body).Decode(&proposal); err != nil {
 		t.Fatalf("decode proposal: %v", err)
 	}
 
-	if proposal.Kind != intent.KindDirectPrompt {
-		t.Errorf("Kind: got %q, want %q", proposal.Kind, intent.KindDirectPrompt)
+	if proposal.Kind != model.KindDirectPrompt {
+		t.Errorf("Kind: got %q, want %q", proposal.Kind, model.KindDirectPrompt)
 	}
 	if proposal.Rewritten != "rewritten text" {
 		t.Errorf("Rewritten: got %q, want %q", proposal.Rewritten, "rewritten text")
@@ -239,12 +239,12 @@ func TestHandler_StillReturnsProposalJSONToHTTP(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var proposal intent.ActionProposal
+	var proposal model.ActionProposal
 	if err := json.NewDecoder(w.Body).Decode(&proposal); err != nil {
 		t.Fatalf("HTTP response not valid ActionProposal JSON: %v", err)
 	}
-	if proposal.Kind != intent.KindDirectPrompt {
-		t.Errorf("HTTP response Kind: got %q, want %q", proposal.Kind, intent.KindDirectPrompt)
+	if proposal.Kind != model.KindDirectPrompt {
+		t.Errorf("HTTP response Kind: got %q, want %q", proposal.Kind, model.KindDirectPrompt)
 	}
 }
 
@@ -289,9 +289,9 @@ func TestHandler_HintBuilderResultReachesHintedStage(t *testing.T) {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten text", nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{
-				Kind:      intent.KindDirectPrompt,
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{
+				Kind:      model.KindDirectPrompt,
 				Rewritten: rewritten,
 			}, nil
 		},

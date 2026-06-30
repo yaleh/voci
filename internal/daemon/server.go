@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	"github.com/yaleh/voci/internal/daemon/auth"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/pipeline"
 )
 
@@ -29,7 +29,7 @@ type HintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn
 type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error)
 
 // ClassifyFn is the function signature for intent classification.
-type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error)
+type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error)
 
 // Server is the daemon HTTP server that accepts audio uploads and writes events.
 type Server struct {

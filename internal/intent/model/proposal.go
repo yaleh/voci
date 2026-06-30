@@ -1,4 +1,7 @@
-package intent
+// Package model contains the shared types for the intent classification pipeline.
+// It is a leaf package with no internal imports, making it safe to import from
+// any layer of the application.
+package model
 
 // Kind represents the classified intent category.
 type Kind string

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // CmdRunner is a function that runs an external command and returns its combined output.
@@ -13,7 +13,7 @@ type CmdRunner func(name string, args ...string) (string, error)
 
 // Executor defines the interface for executing an ActionProposal.
 type Executor interface {
-	Execute(proposal intent.ActionProposal) (string, error)
+	Execute(proposal model.ActionProposal) (string, error)
 }
 
 // DefaultExecutor implements Executor with an injectable CmdRunner for testability.
@@ -32,19 +32,19 @@ func NewDefaultExecutor(runner CmdRunner, confirmed bool) *DefaultExecutor {
 }
 
 // Execute dispatches execution based on the proposal's Kind.
-func (e *DefaultExecutor) Execute(proposal intent.ActionProposal) (string, error) {
+func (e *DefaultExecutor) Execute(proposal model.ActionProposal) (string, error) {
 	switch proposal.Kind {
-	case intent.KindDirectPrompt:
+	case model.KindDirectPrompt:
 		// Passthrough: return rewritten text as-is.
 		return proposal.Rewritten, nil
 
-	case intent.KindAmbiguous:
+	case model.KindAmbiguous:
 		return "", fmt.Errorf("ambiguous intent: cannot execute without clarification")
 
-	case intent.KindBacklogAction:
+	case model.KindBacklogAction:
 		return e.executeBacklogAction(proposal)
 
-	case intent.KindQuery:
+	case model.KindQuery:
 		return e.executeQuery(proposal)
 
 	default:
@@ -55,7 +55,7 @@ func (e *DefaultExecutor) Execute(proposal intent.ActionProposal) (string, error
 // executeBacklogAction handles backlog_action kind.
 // In dry-run mode (Confirmed==false) it returns a [DRY-RUN] description.
 // When confirmed it invokes CmdRunner with the parsed backlog CLI arguments.
-func (e *DefaultExecutor) executeBacklogAction(proposal intent.ActionProposal) (string, error) {
+func (e *DefaultExecutor) executeBacklogAction(proposal model.ActionProposal) (string, error) {
 	args := parseBacklogArgs(proposal.Rewritten)
 
 	if !e.Confirmed {
@@ -69,7 +69,7 @@ func (e *DefaultExecutor) executeBacklogAction(proposal intent.ActionProposal) (
 }
 
 // executeQuery handles query kind — always read-only, no gate required.
-func (e *DefaultExecutor) executeQuery(proposal intent.ActionProposal) (string, error) {
+func (e *DefaultExecutor) executeQuery(proposal model.ActionProposal) (string, error) {
 	args := parseBacklogArgs(proposal.Rewritten)
 
 	if e.CmdRunner == nil {

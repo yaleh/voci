@@ -13,7 +13,7 @@ import (
 	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/daemon/tunnel"
 	"github.com/yaleh/voci/internal/gate"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/ollama"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -51,23 +51,23 @@ var fakeChatFn = func(ctx context.Context, messages []ollama.Message) (string, e
 	return "ok", nil
 }
 
-var fakeClassify ClassifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-	return intent.ActionProposal{
-		Kind:       intent.KindDirectPrompt,
+var fakeClassify ClassifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+	return model.ActionProposal{
+		Kind:       model.KindDirectPrompt,
 		Rewritten:  rewritten,
 		Confidence: 0.9,
 	}, nil
 }
 
-var fakeGateConfirm GateFn = func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+var fakeGateConfirm GateFn = func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 	return gate.GateResult{Action: "confirm"}
 }
 
-var fakeGateDiscard GateFn = func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+var fakeGateDiscard GateFn = func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 	return gate.GateResult{Action: "discard"}
 }
 
-var fakeExecute ExecuteFn = func(proposal intent.ActionProposal) (string, error) {
+var fakeExecute ExecuteFn = func(proposal model.ActionProposal) (string, error) {
 	return "executed", nil
 }
 
@@ -153,21 +153,21 @@ func TestRunFullPipelineWithGate(t *testing.T) {
 	gateCalled := false
 	executeCalled := false
 
-	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
 		classifyCalled = true
-		return intent.ActionProposal{
-			Kind:       intent.KindDirectPrompt,
+		return model.ActionProposal{
+			Kind:       model.KindDirectPrompt,
 			Rewritten:  rewritten,
 			Confidence: 0.9,
 		}, nil
 	})
 
-	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 		gateCalled = true
 		return gate.GateResult{Action: "confirm"}
 	})
 
-	executeFn := ExecuteFn(func(proposal intent.ActionProposal) (string, error) {
+	executeFn := ExecuteFn(func(proposal model.ActionProposal) (string, error) {
 		executeCalled = true
 		return "executed", nil
 	})
@@ -202,7 +202,7 @@ func TestRunFullPipelineGateDiscard(t *testing.T) {
 
 	executeCalled := false
 
-	executeFn := ExecuteFn(func(proposal intent.ActionProposal) (string, error) {
+	executeFn := ExecuteFn(func(proposal model.ActionProposal) (string, error) {
 		executeCalled = true
 		return "executed", nil
 	})
@@ -230,7 +230,7 @@ func TestCLINoGateFlagSkipsGate(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	gateCalled := false
-	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 		gateCalled = true
 		return gate.GateResult{Action: "confirm"}
 	})
@@ -274,13 +274,13 @@ func TestRun_InputDirect_KindDirectPrompt_SkipsGate(t *testing.T) {
 	injectCalled := false
 	var injectedText string
 
-	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 		gateCalled = true
 		return gate.GateResult{Action: "confirm"}
 	})
 
-	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-		return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: rewritten, Confidence: 0.9}, nil
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+		return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: rewritten, Confidence: 0.9}, nil
 	})
 
 	injectFn := InjectFn(func(text string) error {
@@ -317,13 +317,13 @@ func TestRun_InputDirect_KindQuery_SkipsGate(t *testing.T) {
 	gateCalled := false
 	injectCalled := false
 
-	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 		gateCalled = true
 		return gate.GateResult{Action: "confirm"}
 	})
 
-	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-		return intent.ActionProposal{Kind: intent.KindQuery, Rewritten: rewritten, Confidence: 0.9}, nil
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+		return model.ActionProposal{Kind: model.KindQuery, Rewritten: rewritten, Confidence: 0.9}, nil
 	})
 
 	injectFn := InjectFn(func(text string) error {
@@ -356,13 +356,13 @@ func TestRun_InputDirect_KindBacklogAction_UsesGate(t *testing.T) {
 	gateCalled := false
 	injectCalled := false
 
-	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 		gateCalled = true
 		return gate.GateResult{Action: "confirm"}
 	})
 
-	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-		return intent.ActionProposal{Kind: intent.KindBacklogAction, Rewritten: rewritten, Confidence: 0.9}, nil
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+		return model.ActionProposal{Kind: model.KindBacklogAction, Rewritten: rewritten, Confidence: 0.9}, nil
 	})
 
 	injectFn := InjectFn(func(text string) error {
@@ -395,13 +395,13 @@ func TestRun_InputDirect_KindAmbiguous_UsesGate(t *testing.T) {
 	gateCalled := false
 	injectCalled := false
 
-	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal intent.ActionProposal) gate.GateResult {
+	gateFn := GateFn(func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult {
 		gateCalled = true
 		return gate.GateResult{Action: "confirm"}
 	})
 
-	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-		return intent.ActionProposal{Kind: intent.KindAmbiguous, Rewritten: rewritten, Confidence: 0.3}, nil
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+		return model.ActionProposal{Kind: model.KindAmbiguous, Rewritten: rewritten, Confidence: 0.3}, nil
 	})
 
 	injectFn := InjectFn(func(text string) error {
@@ -495,8 +495,8 @@ func TestRun_SeparateMode_UsesAdapterHint(t *testing.T) {
 		func(ctx context.Context, key, path, url, language string, entities []string) string { return "raw" },
 		captureHintedFn,
 		func(ctx context.Context, h, hint string, chat pipeline.ChatFn) (string, error) { return h, nil },
-		func(ctx context.Context, r, fc string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: r}, nil
+		func(ctx context.Context, r, fc string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: r}, nil
 		},
 		nil, nil, nil, nil,
 		customHintFn,
@@ -520,8 +520,8 @@ func TestRun_BuildHintFnNil_DoesNotPanic(t *testing.T) {
 		func(ctx context.Context, key, path, url, language string, entities []string) string { return "raw" },
 		func(ctx context.Context, raw, hint string, chat pipeline.ChatFn) (string, error) { return raw, nil },
 		func(ctx context.Context, h, hint string, chat pipeline.ChatFn) (string, error) { return h, nil },
-		func(ctx context.Context, r, fc string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{Kind: intent.KindDirectPrompt, Rewritten: r}, nil
+		func(ctx context.Context, r, fc string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: r}, nil
 		},
 		nil, nil, nil, nil,
 		nil, // buildHintFn nil → must not panic, fallback to BuildContext
@@ -536,15 +536,15 @@ func TestRun_UsesClaudeCodeAdapter(t *testing.T) {
 	setTestEnv(t)
 	wavPath := makeTempWav(t)
 
-	var captured intent.ActionProposal
-	deliverFn := func(p intent.ActionProposal) error {
+	var captured model.ActionProposal
+	deliverFn := func(p model.ActionProposal) error {
 		captured = p
 		return nil
 	}
 
-	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-		return intent.ActionProposal{
-			Kind:       intent.KindDirectPrompt,
+	classifyFn := ClassifyFn(func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+		return model.ActionProposal{
+			Kind:       model.KindDirectPrompt,
 			Rewritten:  "Fix login bug",
 			Confidence: 0.9,
 		}, nil

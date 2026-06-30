@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/yaleh/voci/internal/daemon/session"
-	"github.com/yaleh/voci/internal/intent"
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/pipeline"
 )
 
@@ -28,9 +28,9 @@ func newDeterministicDaemonServer(buf *bytes.Buffer) *Server {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten text", nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (intent.ActionProposal, error) {
-			return intent.ActionProposal{
-				Kind:      intent.KindDirectPrompt,
+		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
+			return model.ActionProposal{
+				Kind:      model.KindDirectPrompt,
 				Rewritten: rewritten,
 			}, nil
 		},
@@ -55,12 +55,12 @@ func TestE2E_Daemon_TranscribeDoesNotEmit(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	var proposal intent.ActionProposal
+	var proposal model.ActionProposal
 	if err := json.NewDecoder(resp.Body).Decode(&proposal); err != nil {
 		t.Fatalf("decode proposal: %v", err)
 	}
-	if proposal.Kind != intent.KindDirectPrompt {
-		t.Errorf("Kind: got %q, want %q", proposal.Kind, intent.KindDirectPrompt)
+	if proposal.Kind != model.KindDirectPrompt {
+		t.Errorf("Kind: got %q, want %q", proposal.Kind, model.KindDirectPrompt)
 	}
 
 	if buf.Len() != 0 {

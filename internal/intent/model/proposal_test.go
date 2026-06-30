@@ -1,4 +1,4 @@
-package intent
+package model
 
 import "testing"
 

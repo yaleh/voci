@@ -26,13 +26,12 @@ Similarly, if the audio says "run the vocal command" and known terms include "vo
 
 Known technical terms: {ENTITIES_PLACEHOLDER}
 
-Complete these three steps and return ONLY this JSON (no other text):
+Complete these two steps and return ONLY this JSON (no other text):
 1. Transcribe the audio, preserving ALL known technical terms EXACTLY as listed (case-sensitive)
 2. Rewrite the transcript into a clean, well-formed instruction (same language; do NOT translate; do NOT add unstated content; do NOT pick specific targets the speaker did not name; if genuinely too vague, start with [ambiguous])
-3. Classify the rewritten instruction into exactly one of: direct_prompt / backlog_action / query / ambiguous
 
 Return ONLY this JSON:
-{"transcript": "...", "rewritten": "...", "kind": "...", "confidence": 0.0}`
+{"transcript": "...", "rewritten": "..."}`
 
 // geminiMergedTestBaseURL, when non-empty, overrides the Gemini API base URL
 // for TranscribeMerged. Only set this in tests.
@@ -60,10 +59,8 @@ type geminiMergedRequest struct {
 
 // geminiMergedResult is the inner JSON returned by the merged Gemini call.
 type geminiMergedResult struct {
-	Transcript string  `json:"transcript"`
-	Rewritten  string  `json:"rewritten"`
-	Kind       string  `json:"kind"`
-	Confidence float64 `json:"confidence"`
+	Transcript string `json:"transcript"`
+	Rewritten  string `json:"rewritten"`
 }
 
 // Request structs
@@ -342,8 +339,6 @@ func TranscribeMerged(ctx context.Context, key, audioPath, hint, language, model
 	return intentmodel.ActionProposal{
 		RawTranscript: result.Transcript,
 		Rewritten:     result.Rewritten,
-		Kind:          intentmodel.Kind(result.Kind),
-		Confidence:    result.Confidence,
 	}, nil
 }
 

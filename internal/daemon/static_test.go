@@ -358,13 +358,13 @@ func min(a, b int) int {
 
 func makeEmitServer(t *testing.T) *Server {
 	t.Helper()
-	s, _, _ := makeServer(t, "")
+	s, _, _ := makeServer(t)
 	return s
 }
 
 func makeEmitServerWithWriter(t *testing.T, w *bytes.Buffer) *Server {
 	t.Helper()
-	s, _, _ := makeServer(t, "")
+	s, _, _ := makeServer(t)
 	s.EventWriter = w
 	return s
 }

@@ -21,12 +21,8 @@ import (
 	"github.com/yaleh/voci/internal/daemon/auth"
 	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/daemon/tunnel"
-	"github.com/yaleh/voci/internal/executor"
-	"github.com/yaleh/voci/internal/gate"
 	"github.com/yaleh/voci/internal/inject"
-	"github.com/yaleh/voci/internal/intent"
 	"github.com/yaleh/voci/internal/intent/model"
-	"github.com/yaleh/voci/internal/mcp"
 	"github.com/yaleh/voci/internal/ollama"
 	"github.com/yaleh/voci/internal/output"
 	"github.com/yaleh/voci/internal/pipeline"
@@ -35,13 +31,8 @@ import (
 // Dependency types for testing
 type TranscribeFn func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string
 type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error)
-type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error)
-type GateFn func(r io.Reader, w io.Writer, proposal model.ActionProposal) gate.GateResult
-type ExecuteFn func(proposal model.ActionProposal) (string, error)
 type InjectFn func(text string) error
-type StartMCPServerFn func(addr string) error
 type BuildHintFn func(root string) string
-type StartDaemonFn func(addr, eventsPath string, buildHintFn func() string) error
 type StartServeFn func(addr string, eventWriter io.Writer, buildHintFn func() string) error
 type StartManagedTunnelFn func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error)
 
@@ -58,8 +49,7 @@ func Run(args []string) int {
 		return vocicontext.BuildContextWithSource(root, src, nil)
 	})
 	if err := dispatch(args[1:], os.Stdout, os.Stdin,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-		buildHintFn, ccAdapter.Deliver, nil, nil, nil,
+		nil, nil, nil, nil, buildHintFn, ccAdapter.Deliver, nil, nil,
 	); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -76,19 +66,14 @@ func dispatch(
 	transcribeFn TranscribeFn,
 	hintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error),
 	rewriteFnOpt RewriteFn,
-	classifyFn ClassifyFn,
-	gateFn GateFn,
-	executeFn ExecuteFn,
 	injectFn InjectFn,
-	startMCPServerFn StartMCPServerFn,
 	buildHintFn BuildHintFn,
 	deliverFn func(model.ActionProposal) error,
-	startDaemonFn StartDaemonFn,
 	startServeFn StartServeFn,
 	startManagedTunnelFn StartManagedTunnelFn,
 ) error {
 	fwd := func(a []string) error {
-		return run(a, stdout, stdin, transcribeFn, hintedFn, rewriteFnOpt, classifyFn, gateFn, executeFn, injectFn, startMCPServerFn, buildHintFn, deliverFn, startDaemonFn, startServeFn, startManagedTunnelFn)
+		return run(a, stdout, stdin, transcribeFn, hintedFn, rewriteFnOpt, injectFn, buildHintFn, deliverFn, startServeFn, startManagedTunnelFn)
 	}
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return fwd(args)
@@ -97,12 +82,10 @@ func dispatch(
 	switch sub {
 	case "serve":
 		return fwd(append([]string{"--serve"}, rest...))
-	case "mcp":
-		return fwd(append([]string{"--session=integrated"}, rest...))
 	case "once":
 		return fwd(rest)
 	default:
-		return fmt.Errorf("unknown subcommand %q; use serve, mcp, or once", sub)
+		return fmt.Errorf("unknown subcommand %q; use serve or once", sub)
 	}
 }
 
@@ -153,14 +136,9 @@ func run(
 	transcribeFn TranscribeFn,
 	hintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error),
 	rewriteFnOpt RewriteFn,
-	classifyFn ClassifyFn,
-	gateFn GateFn,
-	executeFn ExecuteFn,
 	injectFn InjectFn,
-	startMCPServerFn StartMCPServerFn,
 	buildHintFn BuildHintFn,
 	deliverFn func(model.ActionProposal) error,
-	startDaemonFn StartDaemonFn,
 	startServeFn StartServeFn,
 	startManagedTunnelFn StartManagedTunnelFn,
 ) error {
@@ -169,14 +147,7 @@ func run(
 
 	fileFlag := fs.String("file", "", "path to audio WAV file (required)")
 	iterateFlag := fs.Bool("iterate", false, "enter iterative feedback loop after initial output")
-	noGateFlag := fs.Bool("no-gate", false, "skip human confirmation gate (test only)")
-	sessionFlag := fs.String("session", "separate", "session mode: separate|integrated")
-	inputFlag := fs.String("input", "preview", "input mode: preview|direct")
 	tmuxTargetFlag := fs.String("tmux-target", "", "tmux pane target (e.g. session:window.pane)")
-	mcpPortFlag := fs.Int("mcp-port", 9473, "port for MCP server (used with --session=integrated)")
-	daemonFlag := fs.Bool("daemon", false, "run as HTTP daemon accepting audio uploads")
-	daemonPortFlag := fs.Int("daemon-port", 9474, "port for daemon HTTP server (used with --daemon)")
-	eventsPathFlag := fs.String("events-path", "", "path to event log file (default: ~/.voci/events.log)")
 	serveFlag := fs.Bool("serve", false, "run as Monitor-host server; writes event lines to stdout")
 	servePortFlag := fs.Int("serve-port", 9474, "port for serve HTTP server (used with --serve)")
 	serveHostFlag := fs.String("serve-host", "127.0.0.1", "bind host for serve HTTP server (use 0.0.0.0 for LAN access)")
@@ -260,11 +231,6 @@ func run(
 			hintedFn = pipeline.RunHinted
 		}
 		// --serve path intentionally skips Rewrite (RewriteFn stays nil so server.go's nil-guard skips it)
-		if classifyFn == nil {
-			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-				return intent.Classify(ctx, rewritten, fullContext, chat)
-			}
-		}
 		ccAdapter := adapter.NewClaudeCodeAdapter(os.Getenv("TMUX_PANE"), "")
 		serveHint := func() string {
 			cwd, err := os.Getwd()
@@ -281,7 +247,6 @@ func run(
 			TranscribeFn: daemon.TranscribeFn(transcribeFn),
 			HintedFn:     daemon.HintedFn(hintedFn),
 			RewriteFn:    daemon.RewriteFn(rewriteFnOpt),
-			ClassifyFn:   daemon.ClassifyFn(classifyFn),
 			BuildHintFn:  serveHint,
 			HintFn: func(_ context.Context) (string, error) {
 				return serveHint(), nil
@@ -290,7 +255,6 @@ func run(
 			APIKey:      cfg.ASRAPIKey,
 			Language:    cfg.Language,
 			EventWriter: os.Stdout,
-			EventPath:   *eventsPathFlag,
 		}
 		if cfg.ASRProvider == "gemini" && cfg.ASRAPIKey != "" {
 			apiKey := cfg.ASRAPIKey
@@ -382,132 +346,6 @@ func run(
 		return srv.StartWithContext(serveCtx, addr)
 	}
 
-	// --daemon: start HTTP daemon accepting audio uploads, no --file required
-	if *daemonFlag {
-		fmt.Fprintln(stdout, "voci: --daemon is deprecated; use 'voci serve' (see TASK-16)")
-		eventsPath := *eventsPathFlag
-		if eventsPath == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				home = "."
-			}
-			eventsPath = filepath.Join(home, ".voci", "events.log")
-		}
-		addr := fmt.Sprintf("127.0.0.1:%d", *daemonPortFlag)
-
-		if startDaemonFn != nil {
-			return startDaemonFn(addr, eventsPath, func() string {
-				cwd, err := os.Getwd()
-				if err != nil {
-					cwd = "."
-				}
-				return buildHint(cwd)
-			})
-		}
-
-		// Default daemon implementation
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			return fmt.Errorf("config: %w", err)
-		}
-		chatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
-			return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
-		}
-		if transcribeFn == nil {
-			transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
-				return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel, entities)
-			}
-		}
-		if hintedFn == nil {
-			hintedFn = pipeline.RunHinted
-		}
-		if rewriteFnOpt == nil {
-			rewriteFnOpt = pipeline.Rewrite
-		}
-		if classifyFn == nil {
-			classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-				return intent.Classify(ctx, rewritten, fullContext, chat)
-			}
-		}
-
-		ccAdapter := adapter.NewClaudeCodeAdapter(os.Getenv("TMUX_PANE"), "")
-		buildHint := func() string {
-			cwd, err := os.Getwd()
-			if err != nil {
-				cwd = "."
-			}
-			src, discErr := ccAdapter.DiscoverContext()
-			if discErr != nil || src == nil {
-				return vocicontext.BuildContext(cwd, nil)
-			}
-			return vocicontext.BuildContextWithSource(cwd, src, nil)
-		}
-		srv := &daemon.Server{
-			TranscribeFn: daemon.TranscribeFn(transcribeFn),
-			HintedFn:     daemon.HintedFn(hintedFn),
-			RewriteFn:    daemon.RewriteFn(rewriteFnOpt),
-			ClassifyFn:   daemon.ClassifyFn(classifyFn),
-			BuildHintFn:  buildHint,
-			HintFn: func(_ context.Context) (string, error) {
-				return buildHint(), nil
-			},
-			ChatFn:    chatFn,
-			APIKey:    cfg.ASRAPIKey,
-			Language:  cfg.Language,
-			EventPath: eventsPath,
-		}
-		return srv.Start(addr)
-	}
-
-	// --session=integrated: start MCP server, no --file required
-	if *sessionFlag == "integrated" {
-		addr := fmt.Sprintf("127.0.0.1:%d", *mcpPortFlag)
-		if startMCPServerFn == nil {
-			cfg, err := config.LoadConfig()
-			if err != nil {
-				return fmt.Errorf("config: %w", err)
-			}
-			cwd, err := os.Getwd()
-			if err != nil {
-				cwd = "."
-			}
-			hint := buildHint(cwd)
-			chatFn := func(ctx context.Context, messages []ollama.Message) (string, error) {
-				return ollama.Chat(ctx, cfg.OllamaHost, "gemma4:e4b", messages)
-			}
-			if transcribeFn == nil {
-				transcribeFn = func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
-					return asr.Transcribe(ctx, key, audioPath, apiURL, language, cfg.ASRProvider, cfg.ASRModel, entities)
-				}
-			}
-			if hintedFn == nil {
-				hintedFn = pipeline.RunHinted
-			}
-			if rewriteFnOpt == nil {
-				rewriteFnOpt = pipeline.Rewrite
-			}
-			if classifyFn == nil {
-				classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-					return intent.Classify(ctx, rewritten, fullContext, chat)
-				}
-			}
-			startMCPServerFn = func(addr string) error {
-				srv := mcp.NewServer(
-					mcp.TranscribeFn(transcribeFn),
-					mcp.HintedFn(hintedFn),
-					mcp.RewriteFn(rewriteFnOpt),
-					mcp.ClassifyFn(classifyFn),
-					cfg.ASRAPIKey,
-					chatFn,
-					hint,
-					cfg.Language,
-				)
-				return srv.Start(addr)
-			}
-		}
-		return startMCPServerFn(addr)
-	}
-
 	if *fileFlag == "" {
 		return fmt.Errorf("--file is required")
 	}
@@ -547,20 +385,6 @@ func run(
 	if rewriteFnOpt == nil {
 		rewriteFnOpt = pipeline.Rewrite
 	}
-	if classifyFn == nil {
-		classifyFn = func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			return intent.Classify(ctx, rewritten, fullContext, chat)
-		}
-	}
-	if gateFn == nil {
-		gateFn = gate.Run
-	}
-	if executeFn == nil {
-		executeFn = func(p model.ActionProposal) (string, error) {
-			ex := &executor.DefaultExecutor{CmdRunner: defaultCmdRunner, Confirmed: true}
-			return ex.Execute(p)
-		}
-	}
 	if injectFn == nil {
 		target := *tmuxTargetFlag
 		if target == "" {
@@ -597,45 +421,12 @@ func run(
 		}
 	}
 
-	// Stage 6: Classify intent
-	proposal, err := classifyFn(ctx, rewritten, hint, chatFn)
-	if err != nil {
-		return fmt.Errorf("classify: %w", err)
+	// Stage 6: Inject or deliver the rewritten result directly.
+	if deliverFn != nil {
+		return deliverFn(model.ActionProposal{Rewritten: rewritten})
 	}
-
-	// Stage 6b: Session/input routing
-	if *inputFlag == "direct" && (proposal.Kind == model.KindDirectPrompt || proposal.Kind == model.KindQuery) {
-		if deliverFn != nil {
-			return deliverFn(proposal)
-		} else if injectFn != nil {
-			return injectFn(proposal.Rewritten)
-		}
-		return nil
+	if injectFn != nil {
+		return injectFn(rewritten)
 	}
-
-	// Stage 7: Human gate (skipped with --no-gate)
-	if !*noGateFlag {
-		gate.PrintSummary(stdout, proposal)
-		result := gateFn(stdin, stdout, proposal)
-		if result.Action == "discard" {
-			fmt.Fprintln(stdout, "Discarded.")
-			return nil
-		}
-		if result.Action == "edit" {
-			proposal.Rewritten = result.EditedText
-		}
-	}
-
-	// Stage 8: Execute
-	execResult, err := executeFn(proposal)
-	if err != nil {
-		return fmt.Errorf("execute: %w", err)
-	}
-
-	// Stage 9: Print execution result
-	if execResult != "" {
-		fmt.Fprintln(stdout, "RESULT:", execResult)
-	}
-
 	return nil
 }

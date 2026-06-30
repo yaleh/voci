@@ -26,33 +26,16 @@ type GateResult struct {
 // PrintSummary writes a formatted summary of proposal to w.
 func PrintSummary(w io.Writer, proposal model.ActionProposal) {
 	fmt.Fprintf(w, "--- Intent Summary ---\n")
-	fmt.Fprintf(w, "Kind:       %s\n", proposal.Kind)
 	fmt.Fprintf(w, "Rewritten:  %s\n", proposal.Rewritten)
-	fmt.Fprintf(w, "Confidence: %.2f\n", proposal.Confidence)
-	if proposal.Kind == model.KindAmbiguous {
-		fmt.Fprintf(w, "Status:     AMBIGUOUS — clarification required before confirming.\n")
-		fmt.Fprintf(w, "Please provide a clarification for this intent:\n")
-	}
 	fmt.Fprintf(w, "----------------------\n")
 }
 
-// Run drives the interactive confirmation loop.
-// For ambiguous proposals it first collects a clarification line, then proceeds
-// with the standard [confirm/edit/discard] loop.
+// Run drives the interactive confirmation loop with a [confirm/edit/discard] loop.
 func Run(r io.Reader, w io.Writer, proposal model.ActionProposal) GateResult {
 	scanner := bufio.NewScanner(r)
 	result := GateResult{}
 
 	PrintSummary(w, proposal)
-
-	// Ambiguous proposals require clarification before action selection.
-	if proposal.Kind == model.KindAmbiguous {
-		fmt.Fprintf(w, "> ")
-		if scanner.Scan() {
-			result.ClarifiedText = strings.TrimSpace(scanner.Text())
-		}
-		fmt.Fprintf(w, "Clarification recorded. Now choose an action.\n")
-	}
 
 	// Action selection loop.
 	for {

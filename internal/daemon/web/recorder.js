@@ -376,11 +376,9 @@
       .then(function (r) { return r.json(); })
       .then(function (p) {
         currentController = null;
-        var kind  = p.Kind || 'direct_prompt';
         var rew   = p.Rewritten || '';
-        var ambig = kind === 'ambiguous';
 
-        if (ambig) {
+        if (!rew) {
           showStatus('未识别到有效内容');
         } else if (rew) {
           // Append at saved cursor position, adding a space separator if needed.

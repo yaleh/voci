@@ -35,12 +35,7 @@ func TestPlaywrightSetup(t *testing.T) {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten text", nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			return model.ActionProposal{
-				Kind:      model.KindDirectPrompt,
-				Rewritten: rewritten,
-			}, nil
-		},
+
 		BuildHintFn: func() string {
 			return "## Known Entities\nAlice, Bob\n## Active Tasks\ntask-1\n## Recent Dialogue\nU: hello\nA: world\n## Claude Code Session\nsession info"
 		},

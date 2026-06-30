@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +20,7 @@ import (
 	"github.com/yaleh/voci/internal/pipeline"
 )
 
-func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {
+func makeServer(t *testing.T) (*Server, *int, *[]string) {
 	t.Helper()
 
 	hintBuilderCount := 0
@@ -38,19 +37,11 @@ func makeServer(t *testing.T, eventPath string) (*Server, *int, *[]string) {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten text", nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			return model.ActionProposal{
-				Kind:       model.KindDirectPrompt,
-				Rewritten:  rewritten,
-				Confidence: 0.95,
-			}, nil
-		},
 		BuildHintFn: func() string {
 			hintBuilderCount++
 			return "test-hint"
 		},
-		ChatFn:    nil,
-		EventPath: eventPath,
+		ChatFn: nil,
 	}
 
 	return srv, &hintBuilderCount, &capturedHints
@@ -72,9 +63,6 @@ func TestHandleTranscribePassesLanguage(t *testing.T) {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return hinted, nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: rewritten}, nil
-		},
 	}
 	h := srv.Handler()
 
@@ -92,7 +80,7 @@ func TestHandleTranscribePassesLanguage(t *testing.T) {
 }
 
 func TestHandler_RejectsNonPost(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	h := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/voice/transcribe", nil)
@@ -105,7 +93,7 @@ func TestHandler_RejectsNonPost(t *testing.T) {
 }
 
 func TestHandler_RejectsEmptyBody(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	h := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", strings.NewReader(""))
@@ -118,7 +106,7 @@ func TestHandler_RejectsEmptyBody(t *testing.T) {
 }
 
 func TestHandler_RunsPipelineAndReturnsProposalJSON(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	h := srv.Handler()
 
 	audioBytes := []byte("fake audio data")
@@ -135,16 +123,13 @@ func TestHandler_RunsPipelineAndReturnsProposalJSON(t *testing.T) {
 		t.Fatalf("decode proposal: %v", err)
 	}
 
-	if proposal.Kind != model.KindDirectPrompt {
-		t.Errorf("Kind: got %q, want %q", proposal.Kind, model.KindDirectPrompt)
-	}
 	if proposal.Rewritten != "rewritten text" {
 		t.Errorf("Rewritten: got %q, want %q", proposal.Rewritten, "rewritten text")
 	}
 }
 
 func TestHandler_RebuildsHintPerCall(t *testing.T) {
-	srv, count, _ := makeServer(t, "")
+	srv, count, _ := makeServer(t)
 	h := srv.Handler()
 
 	audioBytes := []byte("fake audio data")
@@ -164,31 +149,11 @@ func TestHandler_RebuildsHintPerCall(t *testing.T) {
 }
 
 // TestHandler_AppendsEventPerCall: /transcribe must NOT write to EventPath (emit is /emit's job).
-func TestHandler_AppendsEventPerCall(t *testing.T) {
-	dir := t.TempDir()
-	eventPath := filepath.Join(dir, "events.log")
-
-	srv, _, _ := makeServer(t, eventPath)
-	h := srv.Handler()
-
-	audioBytes := []byte("fake audio data")
-	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader(audioBytes))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
-		t.Error("expected EventPath file NOT to be created by /transcribe")
-	}
-}
 
 // TestHandler_WritesEventLineToStdout: /transcribe must NOT write to EventWriter.
 func TestHandler_WritesEventLineToStdout(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -208,7 +173,7 @@ func TestHandler_WritesEventLineToStdout(t *testing.T) {
 // TestHandler_StdoutOneLinePerCall: /transcribe must not write any lines regardless of call count.
 func TestHandler_StdoutOneLinePerCall(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -228,7 +193,7 @@ func TestHandler_StdoutOneLinePerCall(t *testing.T) {
 
 func TestHandler_StillReturnsProposalJSONToHTTP(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -244,93 +209,16 @@ func TestHandler_StillReturnsProposalJSONToHTTP(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&proposal); err != nil {
 		t.Fatalf("HTTP response not valid ActionProposal JSON: %v", err)
 	}
-	if proposal.Kind != model.KindDirectPrompt {
-		t.Errorf("HTTP response Kind: got %q, want %q", proposal.Kind, model.KindDirectPrompt)
-	}
 }
 
 // TestHandler_EventPathOptional: EventWriter must remain empty when /transcribe is called.
-func TestHandler_EventPathOptional(t *testing.T) {
-	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "") // EventPath = ""
-	srv.EventWriter = &buf
-	h := srv.Handler()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if buf.Len() != 0 {
-		t.Errorf("expected /transcribe NOT to write to EventWriter, got: %q", buf.String())
-	}
-	// No file should have been created
-	if _, err := os.Stat("events.log"); !os.IsNotExist(err) {
-		t.Error("expected no events.log file to be created when EventPath is empty")
-	}
-}
-
-func TestHandler_HintBuilderResultReachesHintedStage(t *testing.T) {
-	dir := t.TempDir()
-	eventPath := filepath.Join(dir, "events.log")
-
-	capturedHintsInHinted := []string{}
-
-	hintBuilderCount := 0
-	srv := &Server{
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
-			return "raw transcript"
-		},
-		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
-			capturedHintsInHinted = append(capturedHintsInHinted, hint)
-			return "hinted transcript", nil
-		},
-		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
-			return "rewritten text", nil
-		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			return model.ActionProposal{
-				Kind:      model.KindDirectPrompt,
-				Rewritten: rewritten,
-			}, nil
-		},
-		BuildHintFn: func() string {
-			hintBuilderCount++
-			return "injected-hint-value"
-		},
-		EventPath: eventPath,
-	}
-
-	h := srv.Handler()
-	audioBytes := []byte("fake audio data")
-	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader(audioBytes))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-
-	// EventPath file must NOT be written by /transcribe (emit is /emit's job)
-	if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
-		t.Error("expected EventPath file NOT to be created by /transcribe")
-	}
-
-	if len(capturedHintsInHinted) == 0 {
-		t.Fatal("HintedFn was not called")
-	}
-	if capturedHintsInHinted[0] != "injected-hint-value" {
-		t.Errorf("HintedFn got hint %q, want %q", capturedHintsInHinted[0], "injected-hint-value")
-	}
-}
 
 // ---- Phase A: explicit no-emit tests ----
 
 func TestTranscribe_DoesNotWriteToEventWriter(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -346,29 +234,12 @@ func TestTranscribe_DoesNotWriteToEventWriter(t *testing.T) {
 	}
 }
 
-func TestTranscribe_DoesNotAppendToEventPath(t *testing.T) {
-	dir := t.TempDir()
-	eventPath := filepath.Join(dir, "events.log")
-	srv, _, _ := makeServer(t, eventPath)
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("audio data")))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if _, err := os.Stat(eventPath); !os.IsNotExist(err) {
-		t.Error("handleTranscribe must not write to EventPath; file was created")
-	}
-}
 
 // ---- Phase B: /api/voice/emit tests ----
 
 func TestEmit_WritesOneEventLineToEventWriter(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -396,7 +267,7 @@ func TestEmit_WritesOneEventLineToEventWriter(t *testing.T) {
 }
 
 func TestEmit_RejectsNonPost(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	h := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/voice/emit", nil)
@@ -410,7 +281,7 @@ func TestEmit_RejectsNonPost(t *testing.T) {
 
 func TestEmit_RejectsEmptyText(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -426,7 +297,7 @@ func TestEmit_RejectsEmptyText(t *testing.T) {
 }
 
 func TestEmit_Returns503WhenEventWriterNil(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = nil
 	h := srv.Handler()
 
@@ -441,7 +312,7 @@ func TestEmit_Returns503WhenEventWriterNil(t *testing.T) {
 
 func TestEmit_WritesExactlyOneLinePerCall(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -460,71 +331,11 @@ func TestEmit_WritesExactlyOneLinePerCall(t *testing.T) {
 	}
 }
 
-func TestEmit_AlsoAppendsToEventPath(t *testing.T) {
-	dir := t.TempDir()
-	eventPath := filepath.Join(dir, "events.log")
 
-	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, eventPath)
-	srv.EventWriter = &buf
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", strings.NewReader(`{"text":"write both"}`))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-
-	// EventWriter
-	if buf.Len() == 0 {
-		t.Error("expected EventWriter to have content")
-	}
-
-	// EventPath file
-	f, err := os.Open(eventPath)
-	if err != nil {
-		t.Fatalf("expected EventPath file to be created: %v", err)
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	if !scanner.Scan() {
-		t.Fatal("expected at least 1 event line in EventPath file")
-	}
-	var ev session.Event
-	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
-		t.Fatalf("Unmarshal EventPath line: %v", err)
-	}
-	if ev.Rewritten != "write both" {
-		t.Errorf("EventPath ev.Rewritten: got %q, want %q", ev.Rewritten, "write both")
-	}
-}
-
-func TestEmit_EventPathOptional(t *testing.T) {
-	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "") // EventPath = ""
-	srv.EventWriter = &buf
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/voice/emit", strings.NewReader(`{"text":"no file"}`))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
-	}
-	if buf.Len() == 0 {
-		t.Error("expected EventWriter to have content")
-	}
-	if _, err := os.Stat("events.log"); !os.IsNotExist(err) {
-		t.Error("expected no events.log file when EventPath is empty")
-	}
-}
 
 func TestEmit_PreservesKind(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -550,7 +361,7 @@ func TestEmit_PreservesKind(t *testing.T) {
 
 func TestEmit_DefaultsKindWhenAbsent(t *testing.T) {
 	var buf bytes.Buffer
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.EventWriter = &buf
 	h := srv.Handler()
 
@@ -577,7 +388,7 @@ func TestEmit_DefaultsKindWhenAbsent(t *testing.T) {
 // Phase TASK-46: BearerToken auth on API routes
 
 func TestHandler_StaticFilesUnprotected(t *testing.T) {
-	s, _, _ := makeServer(t, "")
+	s, _, _ := makeServer(t)
 	s.BearerToken = "tok"
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
@@ -591,7 +402,7 @@ func TestHandler_StaticFilesUnprotected(t *testing.T) {
 }
 
 func TestHandler_APIRequiresTokenWhenSet(t *testing.T) {
-	s, _, _ := makeServer(t, "")
+	s, _, _ := makeServer(t)
 	s.BearerToken = "tok"
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
@@ -608,7 +419,7 @@ func TestHandler_APIRequiresTokenWhenSet(t *testing.T) {
 // Phase D: /api/context endpoint
 
 func TestHandleContext_ReturnsHint(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.HintFn = func(ctx context.Context) (string, error) {
 		return "## Known Entities\nspoken: Foo\n", nil
 	}
@@ -631,7 +442,7 @@ func TestHandleContext_ReturnsHint(t *testing.T) {
 }
 
 func TestHandleContext_HintFnError(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.HintFn = func(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("context build failed")
 	}
@@ -650,7 +461,7 @@ func TestHandleContext_HintFnError(t *testing.T) {
 // returns when its context is cancelled, so tunnel.WatchTunnel can propagate a
 // tunnel exit to the HTTP server.
 func TestStartWithContext_StopsWhenContextCancelled(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -678,7 +489,7 @@ func TestStartWithContext_StopsWhenContextCancelled(t *testing.T) {
 }
 
 func TestStartWithContext_Port0_AssignsEphemeralPort(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -727,7 +538,7 @@ func TestStartWithContext_ExplicitPortConflict_ReturnsError(t *testing.T) {
 	defer ln.Close()
 	addr := ln.Addr().String()
 
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	err = srv.StartWithContext(context.Background(), addr)
 	if err == nil {
 		t.Fatal("expected error for already-in-use port, got nil")
@@ -741,7 +552,7 @@ func TestStartWithContext_ExplicitPortConflict_ReturnsError(t *testing.T) {
 // pre-bound listener, calls OnListening with its addr, serves requests, and
 // shuts down cleanly on context cancel.
 func TestStartWithContextFromListener(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -788,7 +599,7 @@ func TestHandleTranscribeLogsTimings(t *testing.T) {
 	log.SetOutput(&logBuf)
 	defer log.SetOutput(os.Stderr)
 
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	h := srv.Handler()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
@@ -800,7 +611,7 @@ func TestHandleTranscribeLogsTimings(t *testing.T) {
 	}
 
 	logOutput := logBuf.String()
-	for _, want := range []string{"asr:", "hinted:", "rewrite:", "classify:", "total:"} {
+	for _, want := range []string{"asr:", "hinted:", "rewrite:", "total:"} {
 		if !strings.Contains(logOutput, want) {
 			t.Errorf("log missing %q; got: %s", want, logOutput)
 		}
@@ -812,7 +623,7 @@ func TestHandleTranscribeLogsTimings_NilRewrite(t *testing.T) {
 	log.SetOutput(&logBuf)
 	defer log.SetOutput(os.Stderr)
 
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.RewriteFn = nil
 	h := srv.Handler()
 
@@ -835,7 +646,7 @@ func TestHandleTranscribeLogsTimings_HintedError(t *testing.T) {
 	log.SetOutput(&logBuf)
 	defer log.SetOutput(os.Stderr)
 
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	srv.HintedFn = func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 		return "", fmt.Errorf("hinted failure")
 	}
@@ -868,8 +679,6 @@ func TestHandleTranscribe_MergedPath(t *testing.T) {
 			return model.ActionProposal{
 				RawTranscript: "r",
 				Rewritten:     "w",
-				Kind:          model.KindDirectPrompt,
-				Confidence:    0.8,
 			}, nil
 		},
 		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
@@ -879,10 +688,6 @@ func TestHandleTranscribe_MergedPath(t *testing.T) {
 		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
 			t.Fatal("HintedFn should not be called when MergedFn is set")
 			return "", nil
-		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			t.Fatal("ClassifyFn should not be called when MergedFn is set")
-			return model.ActionProposal{}, nil
 		},
 	}
 	h := srv.Handler()
@@ -906,34 +711,6 @@ func TestHandleTranscribe_MergedPath(t *testing.T) {
 	}
 }
 
-func TestHandleTranscribe_FallbackPath(t *testing.T) {
-	classifyCalled := false
-	srv := &Server{
-		MergedFn: nil, // no merged fn → fall through to 3-step pipeline
-		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
-			return "raw"
-		},
-		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
-			return raw, nil
-		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			classifyCalled = true
-			return model.ActionProposal{Kind: model.KindDirectPrompt, Rewritten: rewritten}, nil
-		},
-	}
-	h := srv.Handler()
-
-	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if !classifyCalled {
-		t.Error("expected ClassifyFn to be called in fallback path")
-	}
-}
 
 func TestHandleTranscribe_MergedError(t *testing.T) {
 	srv := &Server{
@@ -953,7 +730,7 @@ func TestHandleTranscribe_MergedError(t *testing.T) {
 }
 
 func TestHandleContext_NilHintFnReturnsEmpty(t *testing.T) {
-	srv, _, _ := makeServer(t, "")
+	srv, _, _ := makeServer(t)
 	// HintFn is nil (not set)
 	h := srv.Handler()
 
@@ -972,3 +749,40 @@ func TestHandleContext_NilHintFnReturnsEmpty(t *testing.T) {
 		t.Error("response must have 'hint' key even when HintFn is nil")
 	}
 }
+
+func TestHandleTranscribe_FallbackReturnsHintedOutput(t *testing.T) {
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(os.Stderr)
+
+	srv := &Server{
+		MergedFn: nil,
+		TranscribeFn: func(ctx context.Context, key, audioPath, apiURL, language string, entities []string) string {
+			return "raw text"
+		},
+		HintedFn: func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn) (string, error) {
+			return "hinted text", nil
+		},
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/voice/transcribe", bytes.NewReader([]byte("fake audio")))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var proposal model.ActionProposal
+	if err := json.NewDecoder(w.Body).Decode(&proposal); err != nil {
+		t.Fatalf("decode proposal: %v", err)
+	}
+	if proposal.RawTranscript != "raw text" {
+		t.Errorf("RawTranscript: want %q, got %q", "raw text", proposal.RawTranscript)
+	}
+	if proposal.Rewritten != "hinted text" {
+		t.Errorf("Rewritten: want %q, got %q", "hinted text", proposal.Rewritten)
+	}
+}
+

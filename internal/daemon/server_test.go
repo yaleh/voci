@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/intent"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -384,7 +385,7 @@ func TestEmit_WritesOneEventLineToEventWriter(t *testing.T) {
 		t.Fatalf("expected 1 non-empty event line, got %d lines: %q", len(lines), buf.String())
 	}
 
-	var ev Event
+	var ev session.Event
 	if err := json.Unmarshal(lines[0], &ev); err != nil {
 		t.Fatalf("Unmarshal event: %v", err)
 	}
@@ -490,7 +491,7 @@ func TestEmit_AlsoAppendsToEventPath(t *testing.T) {
 	if !scanner.Scan() {
 		t.Fatal("expected at least 1 event line in EventPath file")
 	}
-	var ev Event
+	var ev session.Event
 	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
 		t.Fatalf("Unmarshal EventPath line: %v", err)
 	}
@@ -537,7 +538,7 @@ func TestEmit_PreservesKind(t *testing.T) {
 
 	scanner := bufio.NewScanner(&buf)
 	scanner.Scan()
-	var ev Event
+	var ev session.Event
 	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
 		t.Fatalf("unmarshal event: %v", err)
 	}
@@ -563,7 +564,7 @@ func TestEmit_DefaultsKindWhenAbsent(t *testing.T) {
 
 	scanner := bufio.NewScanner(&buf)
 	scanner.Scan()
-	var ev Event
+	var ev session.Event
 	if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
 		t.Fatalf("unmarshal event: %v", err)
 	}

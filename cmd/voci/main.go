@@ -18,6 +18,7 @@ import (
 	"github.com/yaleh/voci/internal/config"
 	vocicontext "github.com/yaleh/voci/internal/context"
 	"github.com/yaleh/voci/internal/daemon"
+	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/daemon/tunnel"
 	"github.com/yaleh/voci/internal/executor"
 	"github.com/yaleh/voci/internal/gate"
@@ -212,12 +213,12 @@ func run(
 		sessionID := *sessionIDFlag
 		if lockDir != "" {
 			if sessionID == "" {
-				sessionID = daemon.NewSessionID()
+				sessionID = session.NewSessionID()
 			}
-			if err := daemon.SweepStaleLocks(lockDir); err != nil {
+			if err := session.SweepStaleLocks(lockDir); err != nil {
 				return fmt.Errorf("sweep stale locks: %w", err)
 			}
-			defer daemon.RemoveLock(lockDir, sessionID) //nolint:errcheck
+			defer session.RemoveLock(lockDir, sessionID) //nolint:errcheck
 		}
 
 		// Default: build real Server with stdout as the event sink.
@@ -287,7 +288,7 @@ func run(
 			if lockDir != "" {
 				_, portStr, _ := net.SplitHostPort(a.String())
 				port, _ := strconv.Atoi(portStr)
-				if err := daemon.WriteLock(lockDir, sessionID, os.Getpid(), port); err != nil {
+				if err := session.WriteLock(lockDir, sessionID, os.Getpid(), port); err != nil {
 					fmt.Fprintf(os.Stderr, "voci serve: WriteLock: %v\n", err)
 				}
 			}

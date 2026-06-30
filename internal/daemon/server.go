@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/yaleh/voci/internal/asr"
+	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/intent"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -236,7 +237,7 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 	if kind == "" {
 		kind = "direct_prompt"
 	}
-	ev := Event{
+	ev := session.Event{
 		Rewritten: text,
 		Kind:      kind,
 	}
@@ -246,7 +247,7 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.EventPath != "" {
-		_ = AppendEvent(s.EventPath, ev)
+		_ = session.AppendEvent(s.EventPath, ev)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

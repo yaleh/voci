@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yaleh/voci/internal/daemon"
+	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/daemon/tunnel"
 	"github.com/yaleh/voci/internal/gate"
 	"github.com/yaleh/voci/internal/intent"
@@ -912,7 +912,7 @@ func TestServeWritesLock(t *testing.T) {
 	setCFEnv(t)
 
 	dir := t.TempDir()
-	lockCh := make(chan daemon.LockEntry, 1)
+	lockCh := make(chan session.LockEntry, 1)
 
 	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
 		// Start a long-lived cmd; a background goroutine polls for the lock file
@@ -924,7 +924,7 @@ func TestServeWritesLock(t *testing.T) {
 		go func() {
 			deadline := time.Now().Add(5 * time.Second)
 			for time.Now().Before(deadline) {
-				entry, err := daemon.ReadLock(dir, "test-sess")
+				entry, err := session.ReadLock(dir, "test-sess")
 				if err == nil && entry.Port > 0 {
 					select {
 					case lockCh <- entry:

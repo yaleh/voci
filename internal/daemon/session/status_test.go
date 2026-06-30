@@ -99,3 +99,42 @@ func TestSweepStaleStatuses_KeepsActiveStatusFile(t *testing.T) {
 		t.Fatalf("active status should remain: %v", err)
 	}
 }
+
+func TestSweepStaleStatuses_DeadPIDLockFile(t *testing.T) {
+	dir := t.TempDir()
+	// Write a status file with a corresponding lock file containing a dead PID.
+	if err := session.WriteStatus(dir, "dead-sess", "http://127.0.0.1:9000", "https://share.example.com", "tok"); err != nil {
+		t.Fatal(err)
+	}
+	// PID 99999999 is guaranteed to not exist.
+	if err := session.WriteLock(dir, "dead-sess", 99999999, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SweepStaleStatuses(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dead-sess.status")); !os.IsNotExist(err) {
+		t.Error("status file with dead PID lock should have been removed")
+	}
+}
+
+func TestWriteStatus_UnwritableDir_ReturnsError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod ineffective as root")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	err := session.WriteStatus(dir, "sess-ro", "local", "share", "tok")
+	if err == nil {
+		t.Fatal("expected error when writing to read-only dir")
+	}
+}
+
+func TestSweepStaleStatuses_DirNotExist(t *testing.T) {
+	err := session.SweepStaleStatuses("/nonexistent/path/for/status")
+	if err != nil {
+		t.Fatalf("expected nil error for nonexistent dir, got: %v", err)
+	}
+}

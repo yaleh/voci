@@ -199,3 +199,21 @@ func TestStartManagedTunnel_MissingBinary(t *testing.T) {
 		t.Errorf("error should mention 'cloudflared not found', got: %v", err)
 	}
 }
+
+func TestManagedTunnelConfig_DefaultTTL(t *testing.T) {
+	cfg := ManagedTunnelConfig{TTL: 0}
+	got := cfg.ttl()
+	want := 20 * time.Hour
+	if got != want {
+		t.Errorf("ttl() = %v, want %v", got, want)
+	}
+}
+
+func TestManagedTunnelConfig_CustomTTL(t *testing.T) {
+	cfg := ManagedTunnelConfig{TTL: 5 * time.Hour}
+	got := cfg.ttl()
+	want := 5 * time.Hour
+	if got != want {
+		t.Errorf("ttl() = %v, want %v", got, want)
+	}
+}

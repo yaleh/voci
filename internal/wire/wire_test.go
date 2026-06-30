@@ -1303,3 +1303,36 @@ func TestRun_ExitCode(t *testing.T) {
 		})
 	}
 }
+
+// ---- Phase C: defaultCmdRunner and firstNonEmpty tests ----
+
+func TestDefaultCmdRunner_Success(t *testing.T) {
+	out, err := defaultCmdRunner("echo", "hello")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Errorf("expected output to contain 'hello', got: %q", out)
+	}
+}
+
+func TestDefaultCmdRunner_Failure(t *testing.T) {
+	_, err := defaultCmdRunner("false")
+	if err == nil {
+		t.Fatal("expected error for 'false' command")
+	}
+}
+
+func TestFirstNonEmpty_AllEmpty(t *testing.T) {
+	got := firstNonEmpty("", "", "")
+	if got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
+}
+
+func TestFirstNonEmpty_ReturnsFirst(t *testing.T) {
+	got := firstNonEmpty("", "second", "third")
+	if got != "second" {
+		t.Errorf("expected 'second', got %q", got)
+	}
+}

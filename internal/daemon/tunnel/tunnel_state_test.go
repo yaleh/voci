@@ -161,3 +161,25 @@ func TestWriteActiveTunnel_CreatesDir(t *testing.T) {
 		}
 	})
 }
+
+func TestWriteActiveTunnel_ReadOnlyParent(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod ineffective as root")
+	}
+	withFakeHome(t, func(home string) {
+		// Create .voci dir and chmod to read-only so WriteActiveTunnel's MkdirAll fails
+		vociDir := filepath.Join(home, ".voci")
+		if err := os.MkdirAll(vociDir, 0o444); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		if err := os.Chmod(vociDir, 0o444); err != nil {
+			t.Fatalf("Chmod: %v", err)
+		}
+		// WriteActiveTunnel calls MkdirAll on an existing read-only dir → should succeed,
+		// but WriteFile inside will fail because the dir is read-only.
+		err := WriteActiveTunnel(&TunnelState{TunnelID: "ro-test"})
+		if err == nil {
+			t.Fatal("expected error when writing to read-only dir")
+		}
+	})
+}

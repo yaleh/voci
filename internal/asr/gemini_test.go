@@ -340,3 +340,184 @@ func TestExtractEntities_DynamicSection(t *testing.T) {
 		t.Errorf("want %q, got %q", want[0], got[0])
 	}
 }
+
+// geminiEmptyResponse returns a geminiResponse with no candidates (for testing empty responses).
+func geminiEmptyResponse() []byte {
+	resp := map[string]interface{}{
+		"candidates": []map[string]interface{}{},
+	}
+	b, _ := json.Marshal(resp)
+	return b
+}
+
+func TestTranscribeMerged_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal error"}`))
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	wavPath := writeTempWav(t)
+	_, err := TranscribeMerged(context.Background(), "test-key", wavPath, "", "", "", nil)
+	if err == nil {
+		t.Fatal("expected error for HTTP 500")
+	}
+	if !strings.Contains(err.Error(), "API error 500") {
+		t.Errorf("error should mention 'API error 500', got: %v", err)
+	}
+}
+
+func TestTranscribeMerged_EmptyCandidates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiEmptyResponse())
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	wavPath := writeTempWav(t)
+	_, err := TranscribeMerged(context.Background(), "test-key", wavPath, "", "", "", nil)
+	if err == nil {
+		t.Fatal("expected error for empty candidates")
+	}
+	if !strings.Contains(err.Error(), "empty candidates") {
+		t.Errorf("error should mention 'empty candidates', got: %v", err)
+	}
+}
+
+func TestTranscribeMerged_InvalidInnerJSON(t *testing.T) {
+	innerText := `not-json{{{`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiOKResponse(innerText))
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	wavPath := writeTempWav(t)
+	_, err := TranscribeMerged(context.Background(), "test-key", wavPath, "", "", "", nil)
+	if err == nil {
+		t.Fatal("expected error for invalid inner JSON")
+	}
+	if !strings.Contains(err.Error(), "unmarshal inner JSON") {
+		t.Errorf("error should mention 'unmarshal inner JSON', got: %v", err)
+	}
+}
+
+func TestTranscribeMerged_MissingFileReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiOKResponse("ok"))
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	_, err := TranscribeMerged(context.Background(), "key", "/nonexistent/audio.wav", "", "", "", nil)
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	if !strings.Contains(err.Error(), "read audio") {
+		t.Errorf("error should mention 'read audio', got: %v", err)
+	}
+}
+
+func TestGeminiChat_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiOKResponse("chat-ok"))
+	}))
+	defer srv.Close()
+
+	old := geminiChatTestBaseURL
+	geminiChatTestBaseURL = srv.URL
+	defer func() { geminiChatTestBaseURL = old }()
+
+	result, err := GeminiChat(context.Background(), "test-key", "", []string{"user"}, []string{"hello"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "chat-ok" {
+		t.Errorf("want 'chat-ok', got %q", result)
+	}
+}
+
+func TestGeminiChat_HTTPError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"internal error"}`))
+	}))
+	defer srv.Close()
+
+	old := geminiChatTestBaseURL
+	geminiChatTestBaseURL = srv.URL
+	defer func() { geminiChatTestBaseURL = old }()
+
+	_, err := GeminiChat(context.Background(), "test-key", "", []string{"user"}, []string{"hello"})
+	if err == nil {
+		t.Fatal("expected error for HTTP 500")
+	}
+	if !strings.Contains(err.Error(), "API error 500") {
+		t.Errorf("error should mention 'API error 500', got: %v", err)
+	}
+}
+
+func TestGeminiChat_EmptyCandidates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiEmptyResponse())
+	}))
+	defer srv.Close()
+
+	old := geminiChatTestBaseURL
+	geminiChatTestBaseURL = srv.URL
+	defer func() { geminiChatTestBaseURL = old }()
+
+	_, err := GeminiChat(context.Background(), "test-key", "", []string{"user"}, []string{"hello"})
+	if err == nil {
+		t.Fatal("expected error for empty candidates")
+	}
+	if !strings.Contains(err.Error(), "empty response") {
+		t.Errorf("error should mention 'empty response', got: %v", err)
+	}
+}
+
+func TestTranscribeGemini_EmptyCandidates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiEmptyResponse())
+	}))
+	defer srv.Close()
+
+	wavPath := writeTempWav(t)
+	result := TranscribeGemini(context.Background(), "key", wavPath, srv.URL, "", "", nil)
+	if result != "" {
+		t.Errorf("expected empty string for empty candidates, got %q", result)
+	}
+}
+
+func TestTranscribeGemini_InvalidResponseJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{invalid json`))
+	}))
+	defer srv.Close()
+
+	wavPath := writeTempWav(t)
+	result := TranscribeGemini(context.Background(), "key", wavPath, srv.URL, "", "", nil)
+	if result != "" {
+		t.Errorf("expected empty string for invalid JSON, got %q", result)
+	}
+}

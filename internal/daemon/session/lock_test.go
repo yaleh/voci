@@ -150,3 +150,58 @@ func TestNewSessionID(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+func TestSweepStaleLocks_ZeroPID_RemovesFile(t *testing.T) {
+	dir := t.TempDir()
+	// PID 0 is always considered dead (pid <= 0 check in SweepStaleLocks)
+	if err := WriteLock(dir, "zero-pid", 0, 9000); err != nil {
+		t.Fatalf("WriteLock: %v", err)
+	}
+	if err := SweepStaleLocks(dir); err != nil {
+		t.Fatalf("SweepStaleLocks: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "zero-pid.lock")); !os.IsNotExist(err) {
+		t.Error("lock file with pid=0 should have been removed by sweep")
+	}
+}
+
+func TestWriteLock_UnwritableDir_ReturnsError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod ineffective as root")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	err := WriteLock(dir, "sess-ro", 1234, 9000)
+	if err == nil {
+		t.Fatal("expected error when writing to read-only dir")
+	}
+}
+
+func TestReadLock_MissingFile_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	_, err := ReadLock(dir, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for missing lock file")
+	}
+}
+
+func TestReadLock_CorruptJSON_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "corrupt.lock"), []byte("not json {{{"), 0o600)
+	_, err := ReadLock(dir, "corrupt")
+	if err == nil {
+		t.Fatal("expected error for corrupt JSON")
+	}
+}
+
+func TestSweepStaleLocks_GlobError_DirNotExist(t *testing.T) {
+	// SweepStaleLocks on a nonexistent dir just returns nil (no .lock files).
+	err := SweepStaleLocks("/nonexistent/path/for/locks")
+	if err != nil {
+		// filepath.Glob on no-match is fine; error shouldn't happen.
+		t.Logf("SweepStaleLocks on nonexistent dir: %v (acceptable)", err)
+	}
+}

@@ -97,3 +97,30 @@ In Monitor-host mode (`--serve`), confirmed text goes to `EventWriter` (stdout) 
 - Per-session lock files live in `--lock-dir` (default `~/.voci`): `<sessionID>.lock` (JSON with PID+port) and `<sessionID>.task` (Monitor task ID). `SweepStaleLocks` removes locks whose PIDs are dead.
 - `gate.Run` never auto-executes — human must type `confirm`, `edit`, or `discard`. EOF defaults to discard.
 - Executor `KindDirectPrompt` returns text only; it does **not** run any command. Adapter/inject handles delivery.
+
+## Test Coverage Standards
+
+Coverage goals per package (measured with `go test -coverprofile`):
+
+| Package | Threshold |
+|---|---|
+| `internal/asr` | ≥80% |
+| `internal/daemon/tunnel` | ≥80% |
+| `internal/wire` | ≥80% |
+| `internal/daemon/session` | ≥80% |
+| Overall (`./...`) | ≥80% |
+
+**Measurement command**:
+```bash
+go test -coverprofile=/tmp/cover.out ./... && go tool cover -func=/tmp/cover.out | tail -1
+```
+
+**Exclusions from hard thresholds**:
+- `cmd/voci/main.go` (3-line entry point, no test files)
+- Integration-heavy paths: real `cloudflared` binary calls (tunnel), actual inject delivery, `pdeathsig` (kernel feature detection)
+- `scripts/check-siliconflow` (shell script, no Go tests)
+
+**Policy**:
+- Tests use only standard library (`testing`, `net/http/httptest`, `os.TempDir`). No external test frameworks.
+- New error-path branches must have corresponding tests. Happy-path coverage alone is insufficient.
+- chmod-based tests must `t.Skip("chmod ineffective as root")` when `os.Getuid() == 0`.

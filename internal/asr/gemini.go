@@ -38,6 +38,10 @@ Return ONLY this JSON:
 // for TranscribeMerged. Only set this in tests.
 var geminiMergedTestBaseURL string
 
+// geminiChatTestBaseURL, when non-empty, overrides the Gemini API base URL
+// for GeminiChat. Only set this in tests.
+var geminiChatTestBaseURL string
+
 const DefaultGeminiModel = "gemini-2.5-flash"
 const DefaultGeminiAPIURLTemplate = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -351,7 +355,12 @@ func GeminiChat(ctx context.Context, key, model string, roles, contents []string
 	if model == "" {
 		model = DefaultGeminiModel
 	}
-	apiURL := strings.ReplaceAll(DefaultGeminiAPIURLTemplate, "{model}", model)
+	var apiURL string
+	if geminiChatTestBaseURL != "" {
+		apiURL = geminiChatTestBaseURL + "/v1beta/models/" + model + ":generateContent"
+	} else {
+		apiURL = strings.ReplaceAll(DefaultGeminiAPIURLTemplate, "{model}", model)
+	}
 
 	var sysInstruction *geminiContent
 	var turns []geminiChatContent

@@ -3,7 +3,9 @@ package tunnel
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -99,5 +101,36 @@ func TestWatchTunnel_NoEarlyCancel(t *testing.T) {
 		t.Fatal("context cancelled while process was still running")
 	case <-time.After(200 * time.Millisecond):
 		// good: still running
+	}
+}
+
+func TestStartTunnel_BinaryNotFound(t *testing.T) {
+	// Override PATH to empty so LookPath fails.
+	t.Setenv("PATH", "")
+	_, _, err := StartTunnel(context.Background(), 8080, nil)
+	if err == nil {
+		t.Fatal("expected error when cloudflared not in PATH")
+	}
+	if !strings.Contains(err.Error(), "cloudflared not found") {
+		t.Errorf("error should mention 'cloudflared not found', got: %v", err)
+	}
+}
+
+func TestStartTunnel_NoURLEmitted(t *testing.T) {
+	// Create a fake cloudflared binary that writes no URL and exits 0.
+	dir := t.TempDir()
+	fakeBin := filepath.Join(dir, "cloudflared")
+	script := "#!/bin/sh\necho 'no url here' >&2\nexit 0\n"
+	if err := os.WriteFile(fakeBin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+
+	_, _, err := StartTunnel(context.Background(), 8080, nil)
+	if err == nil {
+		t.Fatal("expected error when cloudflared emits no URL")
+	}
+	if !strings.Contains(err.Error(), "did not emit a URL") {
+		t.Errorf("error should mention 'did not emit a URL', got: %v", err)
 	}
 }

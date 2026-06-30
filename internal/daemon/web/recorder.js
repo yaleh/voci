@@ -398,7 +398,17 @@
   });
 
   $('mic-btn').addEventListener('mousedown', startRec);
-  $('mic-btn').addEventListener('touchstart', function (e) { e.preventDefault(); startRec(); });
+  $('mic-btn').addEventListener('touchstart', function (e) {
+    e.preventDefault();
+    // Blur any focused input first so the virtual keyboard collapses and the
+    // page layout stabilises before recording starts; without this the keyboard
+    // dismissal shifts the bottom bar mid-press, causing the button to slip
+    // away from the user's finger on mobile.
+    if (document.activeElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+    }
+    requestAnimationFrame(startRec);
+  });
   cancelRecBtn.addEventListener('click', function () { stopRec(false); });
 
   window.addEventListener('mouseup',  function ()  { if (isRecording) stopRec(true); });

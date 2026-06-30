@@ -1,4 +1,4 @@
-package main
+package wire
 
 import (
 	"bytes"
@@ -997,5 +997,64 @@ func TestServeCleansUpLock(t *testing.T) {
 	// After run() returns, the deferred daemon.RemoveLock must have fired.
 	if _, statErr := os.Stat(dir + "/test-sess.lock"); statErr == nil {
 		t.Error("expected lock file to be removed after serve exits, but it still exists")
+	}
+}
+
+// ---- TestRun_ExitCode: table-driven tests for the Run() exit code contract ----
+
+func TestRun_ExitCode(t *testing.T) {
+	setTestEnv(t)
+
+	wavPath := makeTempWav(t)
+
+	startMCPServerFn := StartMCPServerFn(func(addr string) error {
+		return nil
+	})
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantCode int
+	}{
+		{
+			name:     "unknown subcommand returns 1",
+			args:     []string{"voci", "bogus"},
+			wantCode: 1,
+		},
+		{
+			name:     "missing file returns 1",
+			args:     []string{"voci", "--file", "/no/such/file.wav"},
+			wantCode: 1,
+		},
+		{
+			name:     "mcp subcommand with injected fn returns 0",
+			args:     []string{"voci", "mcp"},
+			wantCode: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// For the mcp case, inject the fake MCP server fn via env trickery is not
+			// possible with Run(). Instead we test dispatch/run directly for the 0 case.
+			if tc.wantCode == 0 {
+				// Use dispatch directly with injected fns to verify 0-exit path.
+				err := dispatch(
+					tc.args[1:], // strip program name
+					io.Discard, strings.NewReader(""),
+					nil, nil, nil, nil, nil, nil, nil, startMCPServerFn, nil, nil, nil, nil, nil,
+				)
+				if err != nil {
+					t.Errorf("expected no error (exit 0), got: %v", err)
+				}
+				return
+			}
+			// For error cases, test Run() directly (it prints to stderr and returns 1).
+			_ = wavPath // suppress unused warning
+			got := Run(tc.args)
+			if got != tc.wantCode {
+				t.Errorf("Run(%v) = %d, want %d", tc.args, got, tc.wantCode)
+			}
+		})
 	}
 }

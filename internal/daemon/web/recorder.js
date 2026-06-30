@@ -370,7 +370,7 @@
     if (recorder && recorder.state === 'recording') recorder.stop();
   }
 
-  function processAudio(blob) {
+  function doTranscribe(blob) {
     currentController = new AbortController();
     apiFetch('/api/voice/transcribe', { method: 'POST', body: blob, signal: currentController.signal })
       .then(function (r) { return r.json(); })
@@ -404,6 +404,32 @@
         console.error('transcribe:', e);
         setPhase('idle');
       });
+  }
+
+  function processAudio(blob) {
+    blob.arrayBuffer().then(function(buf) {
+      var tmpCtx = new (window.AudioContext || window.webkitAudioContext)();
+      tmpCtx.decodeAudioData(buf, function(decoded) {
+        var data = decoded.getChannelData(0);
+        var sum = 0;
+        for (var i = 0; i < data.length; i++) sum += data[i] * data[i];
+        var rms = Math.sqrt(sum / data.length);
+        var hasSpeech = rms >= VAD_THRESHOLD;
+        tmpCtx.close();
+        if (!hasSpeech) {
+          setPhase('idle');
+          showStatus('未检测到语音');
+          return;
+        }
+        doTranscribe(blob);
+      }, function() {
+        // decodeAudioData failed — fall through to ASR
+        doTranscribe(blob);
+      });
+    }).catch(function() {
+      doTranscribe(blob);
+    });
+    return; // async path takes over
   }
 
   // ── Send ─────────────────────────────────────────────────

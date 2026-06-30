@@ -82,6 +82,26 @@ func (s *Server) Start(addr string) error {
 	return http.ListenAndServe(addr, s.Handler())
 }
 
+// StartWithContextFromListener starts the HTTP server on an already-bound listener.
+// This allows callers to discover the real OS-assigned port before the server
+// starts serving — useful when passing the port to an external process (e.g.
+// cloudflared) that must connect back to us.
+func (s *Server) StartWithContextFromListener(ctx context.Context, ln net.Listener) error {
+	if s.OnListening != nil {
+		s.OnListening(ln.Addr())
+	}
+	hs := &http.Server{Handler: s.Handler()}
+	go func() {
+		<-ctx.Done()
+		hs.Shutdown(context.Background()) //nolint:errcheck
+	}()
+	err := hs.Serve(ln)
+	if ctx.Err() != nil {
+		return nil // clean shutdown on context cancel
+	}
+	return err
+}
+
 // StartWithContext starts the HTTP server and shuts it down gracefully when ctx
 // is cancelled. This allows tunnel.WatchTunnel to propagate a tunnel exit to the
 // server: cancel the context → server stops → voci serve exits → monitor re-arms.
@@ -100,17 +120,5 @@ func (s *Server) StartWithContext(ctx context.Context, addr string) error {
 		}
 		return err
 	}
-	if s.OnListening != nil {
-		s.OnListening(ln.Addr())
-	}
-	hs := &http.Server{Handler: s.Handler()}
-	go func() {
-		<-ctx.Done()
-		hs.Shutdown(context.Background())
-	}()
-	err = hs.Serve(ln)
-	if ctx.Err() != nil {
-		return nil // clean shutdown on context cancel
-	}
-	return err
+	return s.StartWithContextFromListener(ctx, ln)
 }

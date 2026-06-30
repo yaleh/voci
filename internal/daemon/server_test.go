@@ -736,6 +736,50 @@ func TestStartWithContext_ExplicitPortConflict_ReturnsError(t *testing.T) {
 	}
 }
 
+// TestStartWithContextFromListener verifies that the new method accepts a
+// pre-bound listener, calls OnListening with its addr, serves requests, and
+// shuts down cleanly on context cancel.
+func TestStartWithContextFromListener(t *testing.T) {
+	srv, _, _ := makeServer(t, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	boundAddr := ln.Addr().String()
+
+	var gotAddr net.Addr
+	srv.OnListening = func(a net.Addr) { gotAddr = a }
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.StartWithContextFromListener(ctx, ln)
+	}()
+
+	// Give the server a moment to call OnListening and start serving.
+	time.Sleep(20 * time.Millisecond)
+	if gotAddr == nil {
+		t.Fatal("OnListening was not called")
+	}
+	if gotAddr.String() != boundAddr {
+		t.Errorf("OnListening addr = %q, want %q", gotAddr.String(), boundAddr)
+	}
+	resp, httpErr := http.Get("http://" + boundAddr + "/")
+	if httpErr != nil {
+		t.Fatalf("GET /: %v", httpErr)
+	}
+	resp.Body.Close()
+
+	cancel()
+	select {
+	case <-errCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("StartWithContextFromListener did not return within 3s after cancel")
+	}
+}
+
 func TestHandleContext_NilHintFnReturnsEmpty(t *testing.T) {
 	srv, _, _ := makeServer(t, "")
 	// HintFn is nil (not set)

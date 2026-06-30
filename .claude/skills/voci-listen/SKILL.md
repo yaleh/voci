@@ -55,7 +55,7 @@ onMonitorEvent    :: Line → Outcome            -- Monitor-event entry: classif
 
 data Outcome   = Listening | Stopped
 data EventKind = VoiceEvent String         -- JSON line with Rewritten field → execute inline
-               | InfoMessage String        -- "voci share URL:" or "Bearer token:" → display to user
+               | InfoMessage String        -- "voci local URL:", "voci share URL:", or "Bearer token:" → display to user
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Entry Point Guard: Cold-start vs. Monitor-event dispatch
@@ -118,12 +118,13 @@ ensureMonitor(SESSION_ID) = {
   -- --serve-port 0: OS assigns port; --lock-dir/--session-id: binary self-manages lock.
   -- The command merges stderr→stdout (2>/dev/stdout) and grep-filters to three line types:
   --   1. JSON event lines      (contain "rewritten") → voice instruction to execute
-  --   2. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
-  --   3. "Bearer token:   …"  (from stderr)         → auth token to display
+  --   2. "voci local URL: …"  (from stderr)         → local HTTP URL to display
+  --   3. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
+  --   4. "Bearer token:   …"  (from stderr)         → auth token to display
   -- On wake-up: onMonitorEvent classifies and dispatches directly. No skill restart.
   Monitor(persistent=true,
-    command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
-    description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci share URL:' or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction.")
+    command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci local URL|voci share URL|Bearer token'",
+    description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci local URL:', 'voci share URL:', or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction.")
 }
 
 stopStaleMon() = {
@@ -162,6 +163,7 @@ cleanupLock(SESSION_ID) = {
 
 classifyEvent :: Line → EventKind
 classifyEvent(line) =
+  | line starts with "voci local URL:" → InfoMessage(line)
   | line starts with "voci share URL:" → InfoMessage(line)
   | line starts with "Bearer token:"   → InfoMessage(line)
   | otherwise                          → VoiceEvent(line)
@@ -254,8 +256,8 @@ for task in tasks:
 
 # Arm new Monitor:
 Monitor(persistent=true,
-  command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
-  description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci share URL:' or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction."
+  command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci local URL|voci share URL|Bearer token'",
+  description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci local URL:', 'voci share URL:', or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction."
 )
 ```
 
@@ -268,6 +270,7 @@ and filters down to three line patterns:
 | Pattern | Source | Action |
 |---|---|---|
 | `"rewritten"` | JSON event (stdout) | extract Rewritten → execute inline |
+| `voci local URL` | stderr startup line | display to user |
 | `voci share URL` | stderr startup line | display to user |
 | `Bearer token` | stderr startup line | display to user |
 
@@ -276,7 +279,7 @@ and filters down to three line patterns:
 On each Monitor wake-up, classify the line before acting:
 
 ```
-if line starts with "voci share URL:" or "Bearer token:":
+if line starts with "voci local URL:" or "voci share URL:" or "Bearer token:":
     # Startup info — display directly to the user
     print(line)
     re-arm (continue listenLoop)
@@ -309,7 +312,7 @@ using whatever tools are appropriate for the requested action.
 The Monitor `description` field is self-contained. When a Monitor event arrives in a
 new session (after `/clear` or context compaction), the description instructs Claude to
 classify the line and act directly — no skill call is needed. If the line
-starts with `"voci share URL:"` or `"Bearer token:"`, display it to the user.
+starts with `"voci local URL:"`, `"voci share URL:"`, or `"Bearer token:"`, display it to the user.
 Otherwise, extract the `rewritten` field from the JSON and execute it inline.
 
 ### cleanupLock

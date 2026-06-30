@@ -851,6 +851,86 @@ func TestRun_DaemonPrintsDeprecationNotice(t *testing.T) {
 	}
 }
 
+// TestServeCmd_ShareEmitsLocalURL verifies that --share prints a
+// "voci local URL: http://127.0.0.1:<port>" line to stderr so the local
+// endpoint is visible alongside the Cloudflare public URL.
+func TestServeCmd_ShareEmitsLocalURL(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("true")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	// Capture os.Stderr via a pipe — run() writes local URL directly to os.Stderr.
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+
+	var stdout bytes.Buffer
+	runErr := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	if runErr != nil {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+
+	var captured bytes.Buffer
+	captured.ReadFrom(r)
+	stderrOut := captured.String()
+
+	if !strings.Contains(stderrOut, "voci local URL: http://127.0.0.1:") {
+		t.Errorf("stderr did not contain 'voci local URL: http://127.0.0.1:<port>'\nstderr:\n%s", stderrOut)
+	}
+}
+
+// TestServeCmd_SharePort0_TunnelGetsRealPort verifies that when --serve-port=0
+// is used, the tunnel function receives the actual OS-assigned port (> 0), not 0.
+// This is the regression test for the cloudflared 502 bug where port 0 was
+// passed to cloudflared, causing "dial tcp 127.0.0.1:0: connection refused".
+func TestServeCmd_SharePort0_TunnelGetsRealPort(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+
+	var capturedPort int
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		capturedPort = port
+		cmd := exec.Command("true")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.voci.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=test-token"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedPort == 0 {
+		t.Error("tunnel received port 0 — cloudflared would get dial tcp 127.0.0.1:0; want real OS-assigned port")
+	}
+}
+
 func TestServeCmd_ShareManagedTunnel(t *testing.T) {
 	setTestEnv(t)
 	t.Setenv("CLOUDFLARE_API_TOKEN", "fake-cf-token")

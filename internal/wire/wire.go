@@ -308,19 +308,21 @@ func run(
 				}
 			}
 			srv.BearerToken = token
-			_, portStr, splitErr := net.SplitHostPort(addr)
-			if splitErr != nil {
-				return fmt.Errorf("parse addr %q: %w", addr, splitErr)
-			}
-			port, convErr := strconv.Atoi(portStr)
-			if convErr != nil {
-				return fmt.Errorf("parse port %q: %w", portStr, convErr)
-			}
 			tunnelCtx, tunnelCancel := context.WithCancel(serveCtx)
 			defer tunnelCancel()
 			tunnelLogW, tunnelLogClose := openCloudflaredLog()
 			defer tunnelLogClose()
 			logW := io.MultiWriter(os.Stderr, tunnelLogW)
+
+			// Pre-bind the listener so we know the real OS-assigned port before
+			// starting cloudflared. When --serve-port 0 is used the configured
+			// addr contains port "0"; cloudflared must receive the actual port.
+			ln, listenErr := net.Listen("tcp", addr)
+			if listenErr != nil {
+				return fmt.Errorf("--share: listen: %w", listenErr)
+			}
+			_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+			port, _ := strconv.Atoi(portStr)
 
 			cfToken := firstNonEmpty(os.Getenv("CLOUDFLARE_API_TOKEN"), cfg.CloudflareAPIToken)
 			cfAccount := firstNonEmpty(os.Getenv("CF_ACCOUNT_ID"), cfg.CloudflareAccountID)
@@ -351,10 +353,11 @@ func run(
 			}
 			defer tunnelCmd.Process.Kill()
 			tunnel.WatchTunnel(tunnelCmd, tunnelCancel)
+			fmt.Fprintf(os.Stderr, "voci local URL: http://127.0.0.1:%d\n", port)
 			fmt.Fprintf(os.Stderr, "voci share URL: %s\n", publicURL)
 			fmt.Fprintf(os.Stderr, "Bearer token:   %s\n", token)
 			fmt.Fprintf(os.Stderr, "Note: audio and transcriptions route through Cloudflare infrastructure.\n")
-			return srv.StartWithContext(tunnelCtx, addr)
+			return srv.StartWithContextFromListener(tunnelCtx, ln)
 		}
 		return srv.StartWithContext(serveCtx, addr)
 	}

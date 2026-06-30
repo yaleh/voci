@@ -1,6 +1,6 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir and removes it on exit; no separate background start needed. Merges stderr into stdout via 2>&1 and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via reconnectGuard (detects live Monitor task via TaskList). Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir and removes it on exit; no separate background start needed. Merges stderr into stdout via stderr redirect and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via reconnectGuard (detects live Monitor task via TaskList). Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop
 contracts:
   - grep: "Monitor(persistent=true"
@@ -90,14 +90,14 @@ listenLoop() = {
   -- --lock-dir ~/.voci and --session-id $SESSION_ID are passed to voci serve so
   -- the binary writes ~/.voci/$SESSION_ID.lock once the listener is ready and
   -- removes it on clean exit (no separate manageLock bash dance needed).
-  -- The command merges stderr→stdout (2>&1) and grep-filters to three line types:
+  -- The command merges stderr→stdout (stderr→stdout redirect) and grep-filters to three line types:
   --   1. JSON event lines      (contain "rewritten") → voice instruction to execute
   --   2. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
   --   3. "Bearer token:   …"  (from stderr)         → auth token to display
   -- On wake-up: classifyEvent decides whether to display or execute.
   -- The description carries a re-invoke hint for cross-/clear recovery.
   event: Monitor(persistent=true,
-           command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
+           command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
            description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"),
 
   if (stopSentinel()):
@@ -234,7 +234,7 @@ the binary to write and clean up its own lock file:
 
 ```
 Monitor(persistent=true,
-  command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
+  command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
   description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"
 )
 ```
@@ -242,7 +242,7 @@ Monitor(persistent=true,
 `voci serve --share --serve-port 0` starts the HTTP listener on an OS-assigned port,
 launches a Cloudflare Quick Tunnel, and writes the public URL and Bearer token to stderr.
 The binary writes `~/.voci/$SESSION_ID.lock` (with real PID and port) once listening,
-and removes it on clean exit. The `2>&1 | grep` pipeline routes stderr into stdout and
+and removes it on clean exit. The `2>/dev/stdout | grep` pipeline routes stderr into stdout and
 filters down to three line patterns:
 
 | Pattern | Source | Action |

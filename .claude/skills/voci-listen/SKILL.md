@@ -1,6 +1,6 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir and removes it on exit; no separate background start needed. Merges stderr into stdout via stderr redirect and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on event arrival in any session, classify and dispatch directly without calling the skill again. Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir and removes it on exit; no separate background start needed. Startup metadata (local URL, share URL, Bearer token) is written to ~/.voci/<SESSION_ID>.status — Monitor command is a bare voci serve with no shell pipeline. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on event arrival in any session, classify and dispatch directly without calling the skill again. Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop, TaskOutput
 contracts:
   - grep: "Monitor(persistent=true"
@@ -25,9 +25,11 @@ contracts:
     target: self
   - not-grep: "re-invoke"
     target: self
-  - grep: "voci share URL"
+  - not-grep: "2>\x2fdev\x2fstdout"
     target: self
-  - grep: "Bearer token"
+  - not-grep: "\x7c grep --line-buffered"
+    target: self
+  - grep: ".status"
     target: self
 ---
 
@@ -55,7 +57,6 @@ onMonitorEvent    :: Line → Outcome            -- Monitor-event entry: classif
 
 data Outcome   = Listening | Stopped
 data EventKind = VoiceEvent String         -- JSON line with Rewritten field → execute inline
-               | InfoMessage String        -- "voci local URL:", "voci share URL:", or "Bearer token:" → display to user
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Entry Point Guard: Cold-start vs. Monitor-event dispatch
@@ -98,7 +99,6 @@ onMonitorEvent(line) = {
     cleanupLock(SESSION_ID),
     return: Stopped,
   kind: classifyEvent(line),
-  | InfoMessage text → display(text),
   | VoiceEvent line  → execute(extractInstruction(line)),
   return: Listening,
 }
@@ -124,17 +124,16 @@ ensureMonitor(SESSION_ID) = {
 
   -- No live Monitor found: arm a new persistent Monitor.
   -- --serve-port 0: OS assigns port; --lock-dir/--session-id: binary self-manages lock.
-  -- The command merges stderr→stdout (2>/dev/stdout) and grep-filters to four line types:
-  --   1. JSON event lines      (contain "rewritten") → voice instruction to execute
-  --   2. "voci local URL: …"  (from stderr)         → local HTTP URL to display
-  --   3. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
-  --   4. "Bearer token:   …"  (from stderr)         → auth token to display
+  -- The command is a bare voci serve — no shell pipeline, no grep wrapper.
+  -- Startup metadata (local URL, share URL, Bearer token) is written to
+  -- ~/.voci/$SESSION_ID.status by the binary; poll that file after arming.
+  -- JSON event lines (containing "rewritten") arrive on stdout → voice instruction to execute.
   -- After arming, write the task ID to ~/.voci/$SESSION_ID.task for future
   -- reconnect detection (TaskList is unreliable for persistent Monitors).
   -- On wake-up: onMonitorEvent classifies and dispatches directly. No skill restart.
   TASK_ID = Monitor(persistent=true,
-    command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci local URL|voci share URL|Bearer token'",
-    description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci local URL:', 'voci share URL:', or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction.")
+    command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID",
+    description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction.")
   -- extract task ID from Monitor result (e.g. "Monitor started (task bwiijfk3w, …)")
   -- write it: echo $TASK_ID > ~/.voci/$SESSION_ID.task
   WriteMonitorTaskID(~/.voci, SESSION_ID, TASK_ID)
@@ -206,10 +205,7 @@ cleanupLock(SESSION_ID) = {
 
 classifyEvent :: Line → EventKind
 classifyEvent(line) =
-  | line starts with "voci local URL:" → InfoMessage(line)
-  | line starts with "voci share URL:" → InfoMessage(line)
-  | line starts with "Bearer token:"   → InfoMessage(line)
-  | otherwise                          → VoiceEvent(line)
+  | otherwise → VoiceEvent(line)
 
 extractInstruction :: Line → String
 extractInstruction(line) =
@@ -341,42 +337,53 @@ for task in tasks:
 #   "Monitor started (task bwiijfk3w, persistent …)"
 # Extract the task ID and write it to ~/.voci/$SESSION_ID.task.
 MONITOR_RESULT = Monitor(persistent=true,
-  command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci local URL|voci share URL|Bearer token'",
-  description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci local URL:', 'voci share URL:', or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction."
+  command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID",
+  description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction."
 )
 # Extract task ID from result string (pattern: "task <id>,")
-TASK_ID=$(echo "$MONITOR_RESULT" | grep -oP '(?<=task )\w+')
+TASK_ID=$(echo "$MONITOR_RESULT" | python3 -c "import re,sys; m=re.search(r'task (\w+)', sys.stdin.read()); print(m.group(1) if m else '')")
 echo "$TASK_ID" > ~/.voci/${SESSION_ID}.task
 echo "[voci-listen] ensureMonitor: armed Monitor $TASK_ID, saved to ~/.voci/${SESSION_ID}.task"
+
+# Poll ~/.voci/$SESSION_ID.status for startup metadata (up to 30s, every 0.5s).
+# voci serve writes this file atomically after the tunnel is established.
+STATUS_FILE="${HOME}/.voci/${SESSION_ID}.status"
+DEADLINE=$(($(date +%s) + 30))
+while [ $(date +%s) -lt $DEADLINE ]; do
+  if [ -f "$STATUS_FILE" ]; then
+    LOCAL_URL=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(d['local_url'])")
+    SHARE_URL=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(d['share_url'])")
+    BEARER_TOKEN=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(d['bearer_token'])")
+    echo "[voci-listen] voci local URL: $LOCAL_URL"
+    echo "[voci-listen] voci share URL: $SHARE_URL"
+    echo "[voci-listen] Bearer token:   $BEARER_TOKEN"
+    break
+  fi
+  sleep 0.5
+done
 ```
 
 `voci serve --share --serve-port 0` starts the HTTP listener on an OS-assigned port,
-launches a Cloudflare Quick Tunnel, and writes the public URL and Bearer token to stderr.
-The binary writes `~/.voci/$SESSION_ID.lock` (with real PID and port) once listening, and
-removes it on clean exit. The `2>/dev/stdout | grep` pipeline routes stderr into stdout
-and filters down to three line patterns:
+launches a Cloudflare Quick Tunnel, and writes startup metadata to
+`~/.voci/$SESSION_ID.status` (local URL, share URL, Bearer token). The binary also writes
+`~/.voci/$SESSION_ID.lock` (with real PID and port) once listening, and removes both
+files on clean exit. JSON event lines (containing `"rewritten"`) arrive on stdout and
+are delivered as Monitor events for execution.
 
-| Pattern | Source | Action |
+| Source | Destination | Action |
 |---|---|---|
-| `"rewritten"` | JSON event (stdout) | extract Rewritten → execute inline |
-| `voci local URL` | stderr startup line | display to user |
-| `voci share URL` | stderr startup line | display to user |
-| `Bearer token` | stderr startup line | display to user |
+| JSON event (stdout) | Monitor wake-up | extract Rewritten → execute inline |
+| Startup metadata | `~/.voci/$SESSION_ID.status` | poll after arming → display to user |
 
 ### classifyEvent (per-line handler)
 
-On each Monitor wake-up, classify the line before acting:
+On each Monitor wake-up, the line is a JSON voice event. Extract and execute:
 
 ```
-if line starts with "voci local URL:" or "voci share URL:" or "Bearer token:":
-    # Startup info — display directly to the user
-    print(line)
-    re-arm (continue listenLoop)
-else:
-    # Voice event — extract instruction and execute
-    INSTRUCTION = extractInstruction(line)
-    execute(INSTRUCTION)
-    re-arm
+# Voice event — extract instruction and execute
+INSTRUCTION = extractInstruction(line)
+execute(INSTRUCTION)
+re-arm
 ```
 
 ### extractInstruction (JSON extraction)
@@ -400,9 +407,9 @@ using whatever tools are appropriate for the requested action.
 
 The Monitor `description` field is self-contained. When a Monitor event arrives in a
 new session (after `/clear` or context compaction), the description instructs Claude to
-classify the line and act directly — no skill call is needed. If the line
-starts with `"voci local URL:"`, `"voci share URL:"`, or `"Bearer token:"`, display it to the user.
-Otherwise, extract the `rewritten` field from the JSON and execute it inline.
+parse the JSON line and extract the `rewritten` field — no skill call is needed.
+Startup metadata (local URL, share URL, Bearer token) is available in
+`~/.voci/$SESSION_ID.status` and does not appear as Monitor events.
 
 ### cleanupLock
 

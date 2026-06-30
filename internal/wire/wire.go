@@ -357,6 +357,12 @@ func run(
 			fmt.Fprintf(os.Stderr, "voci share URL: %s\n", publicURL)
 			fmt.Fprintf(os.Stderr, "Bearer token:   %s\n", token)
 			fmt.Fprintf(os.Stderr, "Note: audio and transcriptions route through Cloudflare infrastructure.\n")
+			if lockDir != "" {
+				if err := session.WriteStatus(lockDir, sessionID, fmt.Sprintf("http://127.0.0.1:%d", port), publicURL, token); err != nil {
+					fmt.Fprintf(os.Stderr, "voci: warning: failed to write status file: %v\n", err)
+				}
+				defer session.RemoveStatus(lockDir, sessionID) //nolint:errcheck
+			}
 			return srv.StartWithContextFromListener(tunnelCtx, ln)
 		}
 		return srv.StartWithContext(serveCtx, addr)

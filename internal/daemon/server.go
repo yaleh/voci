@@ -28,11 +28,8 @@ type HintedFn func(ctx context.Context, raw, hint string, chatFn pipeline.ChatFn
 // RewriteFn is the function signature for rewriting.
 type RewriteFn func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error)
 
-// ClassifyFn is the function signature for intent classification.
-type ClassifyFn func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error)
-
 // MergedFnType is the function signature for the merged pipeline call that replaces
-// TranscribeFn+HintedFn+ClassifyFn with a single Gemini Audio API call.
+// TranscribeFn+HintedFn with a single Gemini Audio API call.
 type MergedFnType func(ctx context.Context, key, audioPath, hint, language string, entities []string) (model.ActionProposal, error)
 
 // Server is the daemon HTTP server that accepts audio uploads and writes events.
@@ -43,9 +40,7 @@ type Server struct {
 	HintedFn HintedFn
 	// RewriteFn rewrites the hinted text.
 	RewriteFn RewriteFn
-	// ClassifyFn classifies the intent from rewritten text.
-	ClassifyFn ClassifyFn
-	// MergedFn, when non-nil, replaces TranscribeFn+HintedFn+ClassifyFn with a
+	// MergedFn, when non-nil, replaces TranscribeFn+HintedFn with a
 	// single Gemini Audio API call.
 	MergedFn MergedFnType
 	// BuildHintFn builds the context hint; called once per request.
@@ -62,8 +57,6 @@ type Server struct {
 	// EventWriter is the writer for event output (e.g. os.Stdout for Monitor-host mode).
 	// Written by /api/voice/emit only (not by /api/voice/transcribe).
 	EventWriter io.Writer
-	// EventPath is the optional path to the event log file (debug/fallback only).
-	EventPath string
 	// BearerToken, when non-empty, requires all /api/* requests to carry
 	// "Authorization: Bearer <token>". Static file routes are unaffected.
 	BearerToken string

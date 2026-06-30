@@ -35,7 +35,6 @@ func TestGeminiCLIAdapter_Capabilities_NonNil(t *testing.T) {
 
 func dummyProposal() model.ActionProposal {
 	return model.ActionProposal{
-		Kind:      model.KindDirectPrompt,
 		Rewritten: "test",
 	}
 }

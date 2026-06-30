@@ -9,8 +9,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	intentmodel "github.com/yaleh/voci/internal/intent/model"
 )
 
 func geminiOKResponse(text string) []byte {
@@ -242,7 +240,7 @@ func TestTranscribeGeminiConfigAFallbackNoEntities(t *testing.T) {
 }
 
 func TestTranscribeMerged_ParsesJSON(t *testing.T) {
-	innerJSON := `{"transcript":"raw","rewritten":"clean","kind":"direct_prompt","confidence":0.9}`
+	innerJSON := `{"transcript":"raw","rewritten":"clean"}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(geminiOKResponse(innerJSON))
@@ -264,16 +262,10 @@ func TestTranscribeMerged_ParsesJSON(t *testing.T) {
 	if proposal.Rewritten != "clean" {
 		t.Errorf("Rewritten: want %q, got %q", "clean", proposal.Rewritten)
 	}
-	if proposal.Kind != intentmodel.KindDirectPrompt {
-		t.Errorf("Kind: want %q, got %q", intentmodel.KindDirectPrompt, proposal.Kind)
-	}
-	if proposal.Confidence != 0.9 {
-		t.Errorf("Confidence: want 0.9, got %f", proposal.Confidence)
-	}
 }
 
 func TestTranscribeMerged_EntityInjection(t *testing.T) {
-	innerJSON := `{"transcript":"ok","rewritten":"ok","kind":"query","confidence":0.5}`
+	innerJSON := `{"transcript":"ok","rewritten":"ok"}`
 	var capturedBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedBody, _ = io.ReadAll(r.Body)

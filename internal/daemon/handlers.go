@@ -12,6 +12,7 @@ import (
 
 	"github.com/yaleh/voci/internal/asr"
 	"github.com/yaleh/voci/internal/daemon/session"
+	"github.com/yaleh/voci/internal/intent/model"
 )
 
 // handleTranscribe runs the full ASR pipeline and returns ActionProposal JSON.
@@ -79,7 +80,7 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	hinted, err := s.HintedFn(ctx, raw, hint, s.ChatFn)
 	hintedMs := time.Since(t1).Milliseconds()
 	if err != nil {
-		log.Printf("pipeline: asr: %dms, hinted: (error), rewrite: -, classify: -, total: %dms", asrMs, time.Since(tStart).Milliseconds())
+		log.Printf("pipeline: asr: %dms, hinted: (error), rewrite: -, total: %dms", asrMs, time.Since(tStart).Milliseconds())
 		http.Error(w, "hinted error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -101,17 +102,12 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		rewriteLabel = "-"
 	}
 
-	t3 := time.Now()
-	proposal, err := s.ClassifyFn(ctx, rewritten, hint, s.ChatFn)
-	classifyMs := time.Since(t3).Milliseconds()
-	if err != nil {
-		log.Printf("pipeline: asr: %dms, hinted: %dms, rewrite: %s, classify: (error), total: %dms", asrMs, hintedMs, rewriteLabel, time.Since(tStart).Milliseconds())
-		http.Error(w, "classify error: "+err.Error(), http.StatusInternalServerError)
-		return
+	proposal := model.ActionProposal{
+		RawTranscript: raw,
+		Rewritten:     rewritten,
 	}
-	proposal.RawTranscript = raw
 
-	log.Printf("pipeline: asr: %dms, hinted: %dms, rewrite: %s, classify: %dms, total: %dms", asrMs, hintedMs, rewriteLabel, classifyMs, time.Since(tStart).Milliseconds())
+	log.Printf("pipeline: asr: %dms, hinted: %dms, rewrite: %s, total: %dms", asrMs, hintedMs, rewriteLabel, time.Since(tStart).Milliseconds())
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(proposal)
@@ -173,10 +169,6 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 
 	if data, merr := json.Marshal(ev); merr == nil {
 		s.EventWriter.Write(append(data, '\n'))
-	}
-
-	if s.EventPath != "" {
-		_ = session.AppendEvent(s.EventPath, ev)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

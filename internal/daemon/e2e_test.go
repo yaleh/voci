@@ -28,12 +28,7 @@ func newDeterministicDaemonServer(buf *bytes.Buffer) *Server {
 		RewriteFn: func(ctx context.Context, hinted, hint string, chatFn pipeline.ChatFn) (string, error) {
 			return "rewritten text", nil
 		},
-		ClassifyFn: func(ctx context.Context, rewritten, fullContext string, chat pipeline.ChatFn) (model.ActionProposal, error) {
-			return model.ActionProposal{
-				Kind:      model.KindDirectPrompt,
-				Rewritten: rewritten,
-			}, nil
-		},
+
 		BuildHintFn: func() string { return "test-hint" },
 		EventWriter: buf,
 	}

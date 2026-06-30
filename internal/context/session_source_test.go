@@ -466,3 +466,93 @@ func TestSessionSource_EmptyEverywhere_Degrades(t *testing.T) {
 		t.Errorf("expected provenance 'session', got: %q", prov)
 	}
 }
+
+// ---- TASK-70: filter system-injected turns ----
+
+func TestParseSessionSnippet_SkipsPromptSourceSystem(t *testing.T) {
+	lines := []string{
+		`{"type":"user","promptSource":"system","message":{"role":"user","content":"should not appear TASK-42"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if strings.Contains(snippet, "should not appear") {
+		t.Errorf("expected snippet to skip promptSource:system entry, but got: %q", snippet)
+	}
+	if strings.Contains(snippet, "TASK-42") {
+		t.Errorf("expected TASK-42 NOT in snippet from promptSource:system entry, got: %q", snippet)
+	}
+}
+
+func TestParseSessionSnippet_SkipsIsCompactSummary(t *testing.T) {
+	lines := []string{
+		`{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"compact summary text"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if strings.Contains(snippet, "compact summary text") {
+		t.Errorf("expected snippet to skip isCompactSummary entry, but got: %q", snippet)
+	}
+}
+
+func TestParseSessionSnippet_SkipsTaskNotificationPrefix(t *testing.T) {
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"<task-notification\n<task>TASK-55</task>\nnotification body text</task-notification>"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if strings.Contains(snippet, "notification body text") {
+		t.Errorf("expected snippet to skip task-notification content, but got: %q", snippet)
+	}
+	if strings.Contains(snippet, "TASK-55") {
+		t.Errorf("expected TASK-55 NOT in mentioned section from task-notification, got: %q", snippet)
+	}
+}
+
+func TestParseSessionSnippet_SkipsSystemReminderPrefix(t *testing.T) {
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"<system-reminder>\nreminder schema body\n</system-reminder>"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if strings.Contains(snippet, "reminder schema body") {
+		t.Errorf("expected snippet to skip system-reminder content, but got: %q", snippet)
+	}
+}
+
+func TestParseSessionSnippet_MixedRealAndSystemTurns(t *testing.T) {
+	path, err := filepath.Abs(filepath.Join("testdata", "session_with_system_turns.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	snippet := parseSessionSnippet(lines)
+
+	if !strings.Contains(snippet, "real user message") {
+		t.Errorf("expected 'real user message' in snippet, got: %q", snippet)
+	}
+	if !strings.Contains(snippet, "go build ./...") {
+		t.Errorf("expected 'go build ./...' in snippet, got: %q", snippet)
+	}
+	if strings.Contains(snippet, "task-notification body") {
+		t.Errorf("expected 'task-notification body' NOT in snippet, got: %q", snippet)
+	}
+	if strings.Contains(snippet, "system-reminder body") {
+		t.Errorf("expected 'system-reminder body' NOT in snippet, got: %q", snippet)
+	}
+	if strings.Contains(snippet, "compact body") {
+		t.Errorf("expected 'compact body' NOT in snippet, got: %q", snippet)
+	}
+	if strings.Contains(snippet, "TASK-99") {
+		t.Errorf("expected TASK-99 NOT in snippet, got: %q", snippet)
+	}
+}
+
+func TestParseSessionSnippet_SystemTurnTaskIDNotExtracted(t *testing.T) {
+	lines := []string{
+		`{"type":"user","promptSource":"system","message":{"role":"user","content":"working on TASK-77"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if strings.Contains(snippet, "TASK-77") {
+		t.Errorf("expected TASK-77 NOT in snippet from promptSource:system entry, got: %q", snippet)
+	}
+}

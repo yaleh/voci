@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	intentmodel "github.com/yaleh/voci/internal/intent/model"
 )
 
 func geminiOKResponse(text string) []byte {
@@ -236,6 +238,65 @@ func TestTranscribeGeminiConfigAFallbackNoEntities(t *testing.T) {
 	}
 	if captured.Contents[0].Parts[0].Text != "Transcribe the following audio." {
 		t.Errorf("want 'Transcribe the following audio.', got %q", captured.Contents[0].Parts[0].Text)
+	}
+}
+
+func TestTranscribeMerged_ParsesJSON(t *testing.T) {
+	innerJSON := `{"transcript":"raw","rewritten":"clean","kind":"direct_prompt","confidence":0.9}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiOKResponse(innerJSON))
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	wavPath := writeTempWav(t)
+	proposal, err := TranscribeMerged(context.Background(), "test-key", wavPath, "", "", "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if proposal.RawTranscript != "raw" {
+		t.Errorf("RawTranscript: want %q, got %q", "raw", proposal.RawTranscript)
+	}
+	if proposal.Rewritten != "clean" {
+		t.Errorf("Rewritten: want %q, got %q", "clean", proposal.Rewritten)
+	}
+	if proposal.Kind != intentmodel.KindDirectPrompt {
+		t.Errorf("Kind: want %q, got %q", intentmodel.KindDirectPrompt, proposal.Kind)
+	}
+	if proposal.Confidence != 0.9 {
+		t.Errorf("Confidence: want 0.9, got %f", proposal.Confidence)
+	}
+}
+
+func TestTranscribeMerged_EntityInjection(t *testing.T) {
+	innerJSON := `{"transcript":"ok","rewritten":"ok","kind":"query","confidence":0.5}`
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiOKResponse(innerJSON))
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	wavPath := writeTempWav(t)
+	_, err := TranscribeMerged(context.Background(), "key", wavPath, "", "", "", []string{"voci", "TASK-64"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	bodyStr := string(capturedBody)
+	if !strings.Contains(bodyStr, "voci, TASK-64") {
+		t.Errorf("request body should contain %q; got: %q", "voci, TASK-64", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "response_mime_type") {
+		t.Errorf("request body should contain %q; got: %q", "response_mime_type", bodyStr)
 	}
 }
 

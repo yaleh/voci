@@ -1,7 +1,7 @@
 ---
 name: voci-listen
 description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir and removes it on exit; no separate background start needed. Merges stderr into stdout via stderr redirect and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on event arrival in any session, classify and dispatch directly without calling the skill again. Stops when ~/.voci/.listen-stop sentinel is present."
-allowed-tools: Bash, Read, Monitor, TaskList, TaskStop
+allowed-tools: Bash, Read, Monitor, TaskList, TaskStop, TaskOutput
 contracts:
   - grep: "Monitor(persistent=true"
     target: self
@@ -21,7 +21,7 @@ contracts:
     target: self
   - grep: "TaskStop"
     target: self
-  - grep: "TaskList"
+  - grep: "TaskOutput"
     target: self
   - not-grep: "re-invoke"
     target: self
@@ -104,38 +104,60 @@ onMonitorEvent(line) = {
 }
 
 ensureMonitor(SESSION_ID) = {
-  -- Idempotency check: avoid arming a duplicate Monitor if one is already live.
-  -- Step 1: Call TaskList to enumerate all active background tasks.
-  -- Step 2: Filter entries whose description contains "voci-listen".
-  -- Step 3: If any live match found, return early — do NOT call Monitor again.
-  --         On TaskList failure, treat as "no live Monitor" and proceed to arm.
-  tasks: TaskList(),
+  -- PRIMARY idempotency check via .task files + TaskOutput (reliable).
+  -- TaskList is unreliable for persistent Monitors; .task files are ground truth.
+  -- Step 1: Read ~/.voci/*.task to get known Monitor task IDs.
+  -- Step 2: For each task ID call TaskOutput(task_id, block=false).
+  -- Step 3: If any returns status=="running" → live Monitor exists, skip arm.
+  for task_file in ~/.voci/*.task:
+    task_id = read(task_file)
+    result  = TaskOutput(task_id, block=false)
+    if result.status == "running":
+      echo "[voci-listen] ensureMonitor: live Monitor " + task_id + " — skipping arm"
+      return: ()
+
+  -- SECONDARY: also try TaskList as best-effort fallback.
+  tasks: TaskList()
   if (any task in tasks where "voci-listen" in task.description):
-    echo "[voci-listen] ensureMonitor: live Monitor already exists — skipping arm"
-    return: (),
+    echo "[voci-listen] ensureMonitor: TaskList found live Monitor — skipping arm"
+    return: ()
 
   -- No live Monitor found: arm a new persistent Monitor.
   -- --serve-port 0: OS assigns port; --lock-dir/--session-id: binary self-manages lock.
-  -- The command merges stderr→stdout (2>/dev/stdout) and grep-filters to three line types:
+  -- The command merges stderr→stdout (2>/dev/stdout) and grep-filters to four line types:
   --   1. JSON event lines      (contain "rewritten") → voice instruction to execute
   --   2. "voci local URL: …"  (from stderr)         → local HTTP URL to display
   --   3. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
   --   4. "Bearer token:   …"  (from stderr)         → auth token to display
+  -- After arming, write the task ID to ~/.voci/$SESSION_ID.task for future
+  -- reconnect detection (TaskList is unreliable for persistent Monitors).
   -- On wake-up: onMonitorEvent classifies and dispatches directly. No skill restart.
-  Monitor(persistent=true,
+  TASK_ID = Monitor(persistent=true,
     command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci local URL|voci share URL|Bearer token'",
     description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci local URL:', 'voci share URL:', or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction.")
+  -- extract task ID from Monitor result (e.g. "Monitor started (task bwiijfk3w, …)")
+  -- write it: echo $TASK_ID > ~/.voci/$SESSION_ID.task
+  WriteMonitorTaskID(~/.voci, SESSION_ID, TASK_ID)
 }
 
 stopStaleMon() = {
-  -- Step 1: Call TaskList harness tool to enumerate all active background tasks.
-  -- Step 2: Filter entries whose description contains "voci-listen".
-  -- Step 3: For each matching task ID: call TaskStop <task-id> harness tool.
-  --         echo "[voci-listen] stopStaleMon: stopping stale Monitor <task-id>"
-  -- TaskList and TaskStop are harness primitives — invoke as tool calls,
-  -- not as bash commands. Do NOT use shell process signals.
-  -- Step 4: The voci binary sweeps stale lock files automatically via SweepStaleLocks
-  --         when --lock-dir is passed; no separate bash sweep is needed here.
+  -- PRIMARY: read ~/.voci/*.task files to find known Monitor task IDs (reliable).
+  -- Step 1: Read each .task file, call TaskStop on the task ID, remove the file.
+  for task_file in ~/.voci/*.task:
+    task_id = read(task_file)
+    echo "[voci-listen] stopStaleMon: stopping Monitor " + task_id + " from " + task_file
+    TaskStop(task_id)          -- harness tool call, not a shell command
+    rm(task_file)
+
+  -- SECONDARY: also try TaskList as best-effort catch-all for tasks without .task files.
+  tasks = TaskList()
+  for task in tasks:
+    if "voci-listen" in task.description:
+      echo "[voci-listen] stopStaleMon: stopping stale Monitor " + task.id + " (via TaskList)"
+      TaskStop(task.id)
+
+  -- The voci binary sweeps stale .lock files automatically via SweepStaleLocks
+  -- when --lock-dir is passed; no separate bash sweep is needed here.
 }
 
 manageLock() = {
@@ -147,18 +169,39 @@ manageLock() = {
 }
 
 reconnectGuard() = {
-  -- Call TaskList harness tool.
-  -- If any task has description containing "voci-listen" AND status RUNNING:
-  --   Read ~/.voci/*.lock to find the live session (written by voci serve).
-  --   return (live=true, SESSION_ID, PORT_from_lock)
-  -- This avoids repeating cold-start work when a Monitor is already alive.
-  -- Otherwise:
-  --   return (live=false, "", 0)
-  -- Liveness is inferred from Monitor task status; no bash kill -0 loop needed.
+  -- PRIMARY: use .lock + .task files + TaskOutput for reliable liveness detection.
+  -- TaskList is NOT used here because it fails to enumerate persistent Monitors.
+  --
+  -- Step 1: Sweep orphaned .task files (no corresponding .lock → process already gone).
+  SweepStaleTaskFiles(~/.voci)   -- rm .task files whose .lock is absent
+  --
+  -- Step 2: For each ~/.voci/*.lock, check if the corresponding .task file exists
+  --         and whether TaskOutput confirms the Monitor is still running.
+  for lock_file in ~/.voci/*.lock:
+    entry      = ReadLock(lock_file)         -- {session_id, pid, port}
+    task_id    = ReadMonitorTaskID(~/.voci, entry.session_id)  -- may be absent
+    if task_id != "":
+      result = TaskOutput(task_id, block=false)
+      if result.status == "running":
+        echo "[voci-listen] reconnectGuard: live Monitor " + task_id + " session=" + entry.session_id
+        return (live=true, SESSION_ID=entry.session_id, PORT=entry.port)
+  --
+  -- Step 3: No live Monitor found via .task files. Try TaskList as fallback.
+  tasks = TaskList()
+  for task in tasks:
+    if "voci-listen" in task.description and task.status == "running":
+      for lock_file in ~/.voci/*.lock:
+        entry = ReadLock(lock_file)
+        echo "[voci-listen] reconnectGuard: TaskList found live Monitor, reusing session=" + entry.session_id
+        return (live=true, SESSION_ID=entry.session_id, PORT=entry.port)
+  --
+  echo "[voci-listen] reconnectGuard: no live session found — proceeding with cold-start"
+  return (live=false, "", 0)
 }
 
 cleanupLock(SESSION_ID) = {
   -- rm -f ~/.voci/$SESSION_ID.lock
+  -- rm -f ~/.voci/$SESSION_ID.task
 }
 
 classifyEvent :: Line → EventKind
@@ -177,19 +220,30 @@ extractInstruction(line) =
 
 ### stopStaleMon
 
-Call `TaskList` (harness tool, not a shell command) to enumerate all active background tasks.
-Filter entries whose `description` contains `"voci-listen"`. For each matched task, call
-`TaskStop <task-id>` to terminate it before arming the new Monitor. The voci binary
-handles stale lock cleanup automatically via `SweepStaleLocks` when `--lock-dir` is passed.
+`TaskList` is unreliable for persistent Monitors — use `.task` files as the primary source.
 
-```
-# Pseudocode — these are harness tool calls, not bash commands:
+```bash
+# Step 1: Stop all Monitors recorded in .task files (primary, reliable).
+for f in ~/.voci/*.task; do
+  [ -f "$f" ] || continue
+  TASK_ID=$(cat "$f")
+  echo "[voci-listen] stopStaleMon: stopping Monitor $TASK_ID (from $f)"
+  # Call TaskStop harness tool with TASK_ID — NOT a bash kill command.
+  TaskStop("$TASK_ID")
+  rm -f "$f"
+done
+
+# Step 2: TaskList as best-effort catch-all for tasks without .task files.
+# Pseudocode (harness tool call):
 tasks = TaskList()
 for task in tasks:
   if "voci-listen" in task.description:
-    echo "[voci-listen] stopStaleMon: stopping stale Monitor " + task.id
+    echo "[voci-listen] stopStaleMon: stopping stale Monitor " + task.id + " (via TaskList)"
     TaskStop(task.id)
 ```
+
+The voci binary handles stale `.lock` cleanup automatically via `SweepStaleLocks`
+when `--lock-dir` is passed; no separate bash sweep needed here.
 
 ### stopSentinel check
 
@@ -217,48 +271,83 @@ echo "[voci-listen] manageLock: session=$SESSION_ID"
 
 ### reconnectGuard
 
-On cold-start, check whether a voci-listen Monitor task is still running using the
-TaskList harness tool:
+`TaskList` cannot reliably enumerate persistent Monitors. Use `.lock` + `.task` files +
+`TaskOutput` as the primary liveness check:
 
-```
-# Pseudocode — these are harness tool calls, not bash commands:
+```bash
+# Step 1: Sweep orphaned .task files (lock gone → process already exited).
+for f in ~/.voci/*.task; do
+  [ -f "$f" ] || continue
+  BASE="${f%.task}"
+  [ -f "${BASE}.lock" ] || rm -f "$f"
+done
+
+# Step 2: For each live .lock, verify Monitor via .task + TaskOutput (harness tool).
+for lock_file in ~/.voci/*.lock; do
+  [ -f "$lock_file" ] || continue
+  SESSION_ID=$(python3 -c "import sys,json; d=json.load(open('$lock_file')); print(d['session_id'])")
+  PORT=$(python3 -c "import sys,json; d=json.load(open('$lock_file')); print(d['port'])")
+  TASK_FILE="${HOME}/.voci/${SESSION_ID}.task"
+  if [ -f "$TASK_FILE" ]; then
+    TASK_ID=$(cat "$TASK_FILE")
+    # Harness tool call (not bash): TaskOutput(TASK_ID, block=false)
+    result = TaskOutput(TASK_ID, block=false)
+    if result.status == "running":
+      echo "[voci-listen] reconnectGuard: live Monitor $TASK_ID session=$SESSION_ID port=$PORT"
+      return (live=true, SESSION_ID, PORT)
+  fi
+done
+
+# Step 3: Fallback — TaskList (may miss persistent Monitors, but harmless to try).
 tasks = TaskList()
-running_voci = [t for t in tasks if "voci-listen" in t.description and t.status == RUNNING]
-if running_voci:
-  # Read the live lock to recover SESSION_ID and PORT for display.
-  for f in ~/.voci/*.lock:
-    entry = ReadLock(f)
-    SESSION_ID = entry.session_id
-    PORT       = entry.port
-    echo "[voci-listen] reconnectGuard: reusing session=$SESSION_ID port=$PORT"
-    return (live=true, SESSION_ID, PORT)
-else:
-  echo "[voci-listen] reconnectGuard: no live session found — proceeding with cold-start"
-  return (live=false, "", 0)
-```
+for task in tasks:
+  if "voci-listen" in task.description and task.status == "running":
+    for lock_file in ~/.voci/*.lock:
+      entry = ReadLock(lock_file)
+      echo "[voci-listen] reconnectGuard: TaskList found live Monitor, session=" + entry.session_id
+      return (live=true, entry.session_id, entry.port)
 
-Liveness is determined by Monitor task status, not by `kill -0` PID checks.
+echo "[voci-listen] reconnectGuard: no live session found — proceeding with cold-start"
+return (live=false, "", 0)
+```
 
 ### ensureMonitor
 
-Called after `manageLock` or `reconnectGuard`. First performs a `TaskList` idempotency
-check: if any active task already has `"voci-listen"` in its description, skip arming and
-return immediately. On `TaskList` failure, treat as "no live Monitor" and proceed to arm.
-If no live Monitor is found, arms a new persistent Monitor with `--serve-port 0 --lock-dir`:
+Called after `manageLock` or `reconnectGuard`. Idempotency check uses `.task` files +
+`TaskOutput` (primary) and `TaskList` (secondary fallback). After arming, writes the
+harness task ID to `~/.voci/$SESSION_ID.task` for future reconnect detection.
 
-```
-# Idempotency check (harness tool calls):
+```bash
+# PRIMARY idempotency check: .task files + TaskOutput (reliable).
+for f in ~/.voci/*.task; do
+  [ -f "$f" ] || continue
+  TASK_ID=$(cat "$f")
+  # Harness tool call: TaskOutput(TASK_ID, block=false)
+  result = TaskOutput(TASK_ID, block=false)
+  if result.status == "running":
+    echo "[voci-listen] ensureMonitor: live Monitor $TASK_ID — skipping arm"
+    return
+done
+
+# SECONDARY: TaskList best-effort fallback.
 tasks = TaskList()
 for task in tasks:
   if "voci-listen" in task.description:
-    echo "[voci-listen] ensureMonitor: live Monitor already exists — skipping arm"
+    echo "[voci-listen] ensureMonitor: TaskList found live Monitor — skipping arm"
     return
 
-# Arm new Monitor:
-Monitor(persistent=true,
+# Arm new Monitor and save task ID.
+# The Monitor tool result contains the task ID, e.g.:
+#   "Monitor started (task bwiijfk3w, persistent …)"
+# Extract the task ID and write it to ~/.voci/$SESSION_ID.task.
+MONITOR_RESULT = Monitor(persistent=true,
   command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>/dev/stdout | grep --line-buffered -E '\"rewritten\"|voci local URL|voci share URL|Bearer token'",
   description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Classify the line: if it starts with 'voci local URL:', 'voci share URL:', or 'Bearer token:' → display to user; otherwise → parse JSON, extract the 'rewritten' field, execute it inline as the next instruction."
 )
+# Extract task ID from result string (pattern: "task <id>,")
+TASK_ID=$(echo "$MONITOR_RESULT" | grep -oP '(?<=task )\w+')
+echo "$TASK_ID" > ~/.voci/${SESSION_ID}.task
+echo "[voci-listen] ensureMonitor: armed Monitor $TASK_ID, saved to ~/.voci/${SESSION_ID}.task"
 ```
 
 `voci serve --share --serve-port 0` starts the HTTP listener on an OS-assigned port,
@@ -321,7 +410,8 @@ On clean shutdown (stop sentinel reached):
 
 ```bash
 rm -f "${HOME}/.voci/${SESSION_ID}.lock"
-echo "[voci-listen] cleanupLock: removed $LOCK_FILE"
+rm -f "${HOME}/.voci/${SESSION_ID}.task"
+echo "[voci-listen] cleanupLock: removed lock and task files for $SESSION_ID"
 ```
 
 ## Shutdown

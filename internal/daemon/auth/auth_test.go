@@ -1,4 +1,4 @@
-package daemon
+package auth
 
 import (
 	"net/http"

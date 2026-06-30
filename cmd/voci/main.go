@@ -18,6 +18,7 @@ import (
 	"github.com/yaleh/voci/internal/config"
 	vocicontext "github.com/yaleh/voci/internal/context"
 	"github.com/yaleh/voci/internal/daemon"
+	"github.com/yaleh/voci/internal/daemon/auth"
 	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/daemon/tunnel"
 	"github.com/yaleh/voci/internal/executor"
@@ -297,7 +298,7 @@ func run(
 			token := *shareAuthFlag
 			if token == "" {
 				var genErr error
-				token, genErr = daemon.GenerateToken()
+				token, genErr = auth.GenerateToken()
 				if genErr != nil {
 					return fmt.Errorf("generate token: %w", genErr)
 				}

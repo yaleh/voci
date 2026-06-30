@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/yaleh/voci/internal/asr"
+	"github.com/yaleh/voci/internal/daemon/auth"
 	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/intent"
 	"github.com/yaleh/voci/internal/pipeline"
@@ -73,9 +74,9 @@ type Server struct {
 // Handler returns an http.Handler routing the voice endpoints and static UI.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/voice/transcribe", BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleTranscribe)))
-	mux.Handle("/api/voice/emit", BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleEmit)))
-	mux.Handle("/api/context", BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleContext)))
+	mux.Handle("/api/voice/transcribe", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleTranscribe)))
+	mux.Handle("/api/voice/emit", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleEmit)))
+	mux.Handle("/api/context", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleContext)))
 	sub, _ := fs.Sub(embeddedFS, "web")
 	mux.Handle("/", http.FileServerFS(sub))
 	return mux

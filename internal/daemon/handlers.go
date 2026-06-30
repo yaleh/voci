@@ -2,10 +2,13 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/yaleh/voci/internal/asr"
 	"github.com/yaleh/voci/internal/daemon/session"
@@ -51,30 +54,49 @@ func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	entities := asr.ExtractEntities(hint)
 
-	raw := s.TranscribeFn(ctx, s.APIKey, tmpFile.Name(), "", s.Language, entities)
+	tStart := time.Now()
 
+	t0 := tStart
+	raw := s.TranscribeFn(ctx, s.APIKey, tmpFile.Name(), "", s.Language, entities)
+	asrMs := time.Since(t0).Milliseconds()
+
+	t1 := time.Now()
 	hinted, err := s.HintedFn(ctx, raw, hint, s.ChatFn)
+	hintedMs := time.Since(t1).Milliseconds()
 	if err != nil {
+		log.Printf("pipeline: asr: %dms, hinted: (error), rewrite: -, classify: -, total: %dms", asrMs, time.Since(tStart).Milliseconds())
 		http.Error(w, "hinted error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	var rewriteLabel string
 	rewritten := hinted
 	if rewriteFn := s.RewriteFn; rewriteFn != nil {
-		var err error
-		rewritten, err = rewriteFn(ctx, hinted, hint, s.ChatFn)
-		if err != nil {
-			http.Error(w, "rewrite error: "+err.Error(), http.StatusInternalServerError)
+		t2 := time.Now()
+		var rerr error
+		rewritten, rerr = rewriteFn(ctx, hinted, hint, s.ChatFn)
+		rewriteMs := time.Since(t2).Milliseconds()
+		if rerr != nil {
+			log.Printf("pipeline: asr: %dms, hinted: %dms, rewrite: (error), classify: -, total: %dms", asrMs, hintedMs, time.Since(tStart).Milliseconds())
+			http.Error(w, "rewrite error: "+rerr.Error(), http.StatusInternalServerError)
 			return
 		}
+		rewriteLabel = fmt.Sprintf("%dms", rewriteMs)
+	} else {
+		rewriteLabel = "-"
 	}
 
+	t3 := time.Now()
 	proposal, err := s.ClassifyFn(ctx, rewritten, hint, s.ChatFn)
+	classifyMs := time.Since(t3).Milliseconds()
 	if err != nil {
+		log.Printf("pipeline: asr: %dms, hinted: %dms, rewrite: %s, classify: (error), total: %dms", asrMs, hintedMs, rewriteLabel, time.Since(tStart).Milliseconds())
 		http.Error(w, "classify error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	proposal.RawTranscript = raw
+
+	log.Printf("pipeline: asr: %dms, hinted: %dms, rewrite: %s, classify: %dms, total: %dms", asrMs, hintedMs, rewriteLabel, classifyMs, time.Since(tStart).Milliseconds())
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(proposal)

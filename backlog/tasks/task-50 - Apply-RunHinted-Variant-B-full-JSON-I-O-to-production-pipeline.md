@@ -1,10 +1,10 @@
 ---
 id: TASK-50
 title: Apply RunHinted Variant B (full JSON I/O) to production pipeline
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-29 21:35'
-updated_date: '2026-06-29 21:41'
+updated_date: '2026-06-30 14:28'
 labels:
   - 'kind:basic'
 dependencies:
@@ -183,6 +183,8 @@ Proposal approved. Starting plan draft.
 Plan review iteration 1: APPROVED
 [premise-ledger]
 GCL-self-report: E=4 C=3 H=2
+
+Superseded by pipeline merge (TASK-44 report confirms merge viable: -0.36% classify accuracy, +40% entity recall, -32% latency). HintedFn not needed in --serve mode once merge is applied.
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

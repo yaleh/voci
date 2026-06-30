@@ -1,0 +1,52 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]: voci
+    - button "just now" [ref=e35] [cursor=pointer]
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e38]: TASK-1
+      - generic [ref=e39]: ·
+      - generic [ref=e42]: TASK-10
+      - generic [ref=e43]: ·
+      - generic [ref=e46]: TASK-11
+      - generic [ref=e47]: ·
+      - generic [ref=e50]: TASK-12
+    - button "23 entities ▸" [ref=e51] [cursor=pointer]:
+      - generic [ref=e11]: 23 entities
+      - generic [ref=e12]: ▸
+  - generic [ref=e13]:
+    - generic [ref=e52]:
+      - generic [ref=e53]: 23:14
+      - generic [ref=e54]: you
+      - generic [ref=e55]: 显示当前运行的 voci monitor 的 url 和 access token 。
+    - generic [ref=e57]:
+      - generic [ref=e58]: 23:14
+      - generic [ref=e59]: cc
+      - generic [ref=e60]: "- **Local URL**: `http://127.0.0.1:45329` - **Share URL**: `https://higher-compatible-replies-organization.trycloudflare.com` - **Bearer Token**: `525614`"
+    - generic [ref=e61]:
+      - generic [ref=e62]: 23:14
+      - generic [ref=e63]: you
+      - generic [ref=e64]: "<task-notification> <task-id>b1jij3kva</task-id> <summary>Monitor event: \"voci-listen: voice event arrived — DO NOT call /voci-listen again. Parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction.\"</summary> <event>{\"timestamp\":\"\",\"rewritten\":\"Push task 68 to ready.\",\"kind\":\"direct_prompt\",\"raw_transcript\":\"\",\"confidence\":0}</event> If this event is something the user would act on now, send a PushNotification. Routine or benign output doesn't need one."
+    - generic [ref=e66]:
+      - generic [ref=e67]: 23:14
+      - generic [ref=e68]: cc
+      - generic [ref=e69]: "TASK-68 已更新为 `Basic: Ready`。"
+    - generic [ref=e70]:
+      - generic [ref=e71]: 23:14
+      - generic [ref=e72]: you
+      - generic [ref=e73]: 尝试用 mcp 浏览器访问当前 voci monitor web ，获取其展示的会话历史，并于你当前看到的 Claude Code history 比较，分析它们的差异。
+    - generic [ref=e75]:
+      - generic [ref=e76]: 23:14
+      - generic [ref=e77]: cc
+      - generic [ref=e78]: 需要先输入 Bearer token。
+  - generic [ref=e14]:
+    - textbox "或直接输入…" [ref=e16]
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - button "Hold to speak" [ref=e19] [cursor=pointer]:
+          - img [ref=e20]
+          - text: Hold to speak
+        - generic [ref=e23]: or hold Space
+      - button "Send" [ref=e25]:
+        - text: Send
+        - img [ref=e26]

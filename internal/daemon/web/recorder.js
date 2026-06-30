@@ -80,10 +80,20 @@
   // expose saveToken globally for the inline onclick handler
   window.saveToken = saveToken;
 
+  // ── VAD constants ────────────────────────────────────────
+  var VAD_THRESHOLD  = 0.01;  // RMS below this is considered silence
+  var VAD_SILENCE_MS = 500;   // ms of continuous silence before auto-stop
+  var MIN_AUDIO_MS   = 300;   // recordings shorter than this are discarded
+
   var phase = 'idle'; // idle | recording | processing
   var isRecording = false;
   var chunks = [], recorder = null, mediaStream = null;
   var timerSecs = 0, timerInterval = null;
+  // VAD state
+  var audioCtx = null, analyser = null, vadRafId = null;
+  var silenceStart = null, recStartMs = 0;
+  // Cancel in-flight ASR
+  var currentController = null;
   var contextExpanded = false;
   var lastRefresh = Date.now();
   var lastHint = null;
@@ -110,6 +120,7 @@
   var actionLeftProc   = $('action-left-processing');
   var sendBtn          = $('send-btn');
   var cancelRecBtn     = $('cancel-recording-btn');
+  var cancelProcBtn    = $('cancel-processing-btn');
   var processingDots   = $('processing-dots');
   var composeEl        = $('voci-compose');
   var timerEl          = $('timer-str');
@@ -133,6 +144,7 @@
     d(sendBtn,        text ? 'flex'  : 'none');
     d(cancelRecBtn,   rec  ? 'block' : 'none');
     d(processingDots, proc ? 'flex'  : 'none');
+    d(cancelProcBtn,  proc ? 'flex'  : 'none');
   }
 
   function updateSendBtn() {
@@ -301,10 +313,16 @@
         recorder.ondataavailable = function (e) { if (e.data.size > 0) chunks.push(e.data); };
         recorder.onstop = function () {
           stream.getTracks().forEach(function (t) { t.stop(); });
+          // Discard recordings that are too short to contain meaningful speech.
+          if (Date.now() - recStartMs < MIN_AUDIO_MS) {
+            setPhase('idle');
+            return;
+          }
           var blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
           processAudio(blob);
         };
         recorder.start();
+        recStartMs = Date.now();
         isRecording = true;
         timerSecs = 0;
         timerEl.textContent = fmtTimer(0);
@@ -313,14 +331,52 @@
           timerEl.textContent = fmtTimer(timerSecs);
         }, 1000);
         setPhase('recording');
+
+        // VAD: detect prolonged silence and auto-stop.
+        try {
+          audioCtx  = new (window.AudioContext || window.webkitAudioContext)();
+          analyser  = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          audioCtx.createMediaStreamSource(stream).connect(analyser);
+          silenceStart = null;
+          vadLoop();
+        } catch (e) { /* VAD unavailable — proceed without it */ }
       })
       .catch(function (err) { console.error('mic:', err); });
+  }
+
+  function vadLoop() {
+    if (!isRecording || !analyser) return;
+    var buf = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(buf);
+    // RMS of normalised PCM (128 = silence in byte domain).
+    var sum = 0;
+    for (var i = 0; i < buf.length; i++) {
+      var v = (buf[i] - 128) / 128;
+      sum += v * v;
+    }
+    var rms = Math.sqrt(sum / buf.length);
+
+    if (rms < VAD_THRESHOLD) {
+      if (silenceStart === null) silenceStart = Date.now();
+      else if (Date.now() - silenceStart >= VAD_SILENCE_MS) {
+        stopRec(true);
+        return;
+      }
+    } else {
+      silenceStart = null;
+    }
+    vadRafId = requestAnimationFrame(vadLoop);
   }
 
   function stopRec(submit) {
     if (!isRecording) return;
     clearInterval(timerInterval);
     isRecording = false;
+    // Clean up VAD resources.
+    if (vadRafId !== null) { cancelAnimationFrame(vadRafId); vadRafId = null; }
+    if (audioCtx) { audioCtx.close(); audioCtx = null; analyser = null; }
+    silenceStart = null;
     if (!submit) {
       if (recorder && recorder.state === 'recording') {
         recorder.onstop = null;
@@ -334,9 +390,11 @@
   }
 
   function processAudio(blob) {
-    apiFetch('/api/voice/transcribe', { method: 'POST', body: blob })
+    currentController = new AbortController();
+    apiFetch('/api/voice/transcribe', { method: 'POST', body: blob, signal: currentController.signal })
       .then(function (r) { return r.json(); })
       .then(function (p) {
+        currentController = null;
         var kind  = p.Kind || 'direct_prompt';
         var rew   = p.Rewritten || '';
         var ambig = kind === 'ambiguous';
@@ -345,7 +403,13 @@
         updateSendBtn();
         setPhase('idle');
       })
-      .catch(function (e) { console.error('transcribe:', e); setPhase('idle'); });
+      .catch(function (e) {
+        currentController = null;
+        // AbortError means the user cancelled — return to idle silently.
+        if (e && e.name === 'AbortError') { setPhase('idle'); return; }
+        console.error('transcribe:', e);
+        setPhase('idle');
+      });
   }
 
   // ── Send ─────────────────────────────────────────────────
@@ -410,6 +474,9 @@
     requestAnimationFrame(startRec);
   });
   cancelRecBtn.addEventListener('click', function () { stopRec(false); });
+  cancelProcBtn.addEventListener('click', function () {
+    if (currentController) currentController.abort();
+  });
 
   window.addEventListener('mouseup',  function ()  { if (isRecording) stopRec(true); });
   window.addEventListener('touchend', function (e) { if (isRecording) { e.preventDefault(); stopRec(true); } });

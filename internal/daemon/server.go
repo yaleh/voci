@@ -86,7 +86,7 @@ func (s *Server) Start(addr string) error {
 }
 
 // StartWithContext starts the HTTP server and shuts it down gracefully when ctx
-// is cancelled. This allows WatchTunnel to propagate a cloudflared exit to the
+// is cancelled. This allows tunnel.WatchTunnel to propagate a tunnel exit to the
 // server: cancel the context → server stops → voci serve exits → monitor re-arms.
 //
 // When the port is explicitly non-zero and already bound, returns an error containing

@@ -645,8 +645,8 @@ func TestHandleContext_HintFnError(t *testing.T) {
 }
 
 // TestStartWithContext_StopsWhenContextCancelled verifies that StartWithContext
-// returns when its context is cancelled, so WatchTunnel can propagate a
-// cloudflared exit to the HTTP server.
+// returns when its context is cancelled, so tunnel.WatchTunnel can propagate a
+// tunnel exit to the HTTP server.
 func TestStartWithContext_StopsWhenContextCancelled(t *testing.T) {
 	srv, _, _ := makeServer(t, "")
 	ctx, cancel := context.WithCancel(context.Background())

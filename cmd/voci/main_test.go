@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yaleh/voci/internal/daemon"
+	"github.com/yaleh/voci/internal/daemon/tunnel"
 	"github.com/yaleh/voci/internal/gate"
 	"github.com/yaleh/voci/internal/intent"
 	"github.com/yaleh/voci/internal/ollama"
@@ -858,9 +859,9 @@ func TestServeCmd_ShareManagedTunnel(t *testing.T) {
 	t.Setenv("CF_TUNNEL_DOMAIN", "voci.example.com")
 
 	managedCalled := false
-	var capturedCfg daemon.ManagedTunnelConfig
+	var capturedCfg tunnel.ManagedTunnelConfig
 
-	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg daemon.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
 		managedCalled = true
 		capturedCfg = cfg
 		// Return a command that exits immediately so WatchTunnel cancels the context.
@@ -913,7 +914,7 @@ func TestServeWritesLock(t *testing.T) {
 	dir := t.TempDir()
 	lockCh := make(chan daemon.LockEntry, 1)
 
-	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg daemon.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
 		// Start a long-lived cmd; a background goroutine polls for the lock file
 		// (written in OnListening after Listen() starts) and kills the cmd once found.
 		cmd := exec.Command("sleep", "10")
@@ -972,7 +973,7 @@ func TestServeCleansUpLock(t *testing.T) {
 
 	dir := t.TempDir()
 
-	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg daemon.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
 		// Short-lived cmd: gives the server time to start and call OnListening,
 		// then exits so WatchTunnel cancels the context and StartWithContext returns.
 		cmd := exec.Command("sleep", "0.3")

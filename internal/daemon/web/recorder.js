@@ -82,7 +82,6 @@
 
   // ── VAD constants ────────────────────────────────────────
   var VAD_THRESHOLD  = 0.01;  // RMS below this is considered silence
-  var VAD_SILENCE_MS = 500;   // ms of continuous silence before auto-stop
   var MIN_AUDIO_MS   = 300;   // recordings shorter than this are discarded
 
   var phase = 'idle'; // idle | recording | processing
@@ -91,9 +90,7 @@
   var timerSecs = 0, timerInterval = null;
   var insertAt = 0;        // cursor position captured just before processing begins
   var statusTimeout = null; // timer for auto-hiding #voci-status
-  // VAD state
-  var audioCtx = null, analyser = null, vadRafId = null;
-  var silenceStart = null, recStartMs = 0;
+  var recStartMs = 0;
   // Cancel in-flight ASR
   var currentController = null;
   var contextExpanded = false;
@@ -351,52 +348,14 @@
           timerEl.textContent = fmtTimer(timerSecs);
         }, 1000);
         setPhase('recording');
-
-        // VAD: detect prolonged silence and auto-stop.
-        try {
-          audioCtx  = new (window.AudioContext || window.webkitAudioContext)();
-          analyser  = audioCtx.createAnalyser();
-          analyser.fftSize = 256;
-          audioCtx.createMediaStreamSource(stream).connect(analyser);
-          silenceStart = null;
-          vadLoop();
-        } catch (e) { /* VAD unavailable — proceed without it */ }
       })
       .catch(function (err) { console.error('mic:', err); });
-  }
-
-  function vadLoop() {
-    if (!isRecording || !analyser) return;
-    var buf = new Uint8Array(analyser.fftSize);
-    analyser.getByteTimeDomainData(buf);
-    // RMS of normalised PCM (128 = silence in byte domain).
-    var sum = 0;
-    for (var i = 0; i < buf.length; i++) {
-      var v = (buf[i] - 128) / 128;
-      sum += v * v;
-    }
-    var rms = Math.sqrt(sum / buf.length);
-
-    if (rms < VAD_THRESHOLD) {
-      if (silenceStart === null) silenceStart = Date.now();
-      else if (Date.now() - silenceStart >= VAD_SILENCE_MS) {
-        stopRec(true);
-        return;
-      }
-    } else {
-      silenceStart = null;
-    }
-    vadRafId = requestAnimationFrame(vadLoop);
   }
 
   function stopRec(submit) {
     if (!isRecording) return;
     clearInterval(timerInterval);
     isRecording = false;
-    // Clean up VAD resources.
-    if (vadRafId !== null) { cancelAnimationFrame(vadRafId); vadRafId = null; }
-    if (audioCtx) { audioCtx.close(); audioCtx = null; analyser = null; }
-    silenceStart = null;
     if (!submit) {
       if (recorder && recorder.state === 'recording') {
         recorder.onstop = null;
@@ -411,7 +370,7 @@
     if (recorder && recorder.state === 'recording') recorder.stop();
   }
 
-  function processAudio(blob) {
+  function doTranscribe(blob) {
     currentController = new AbortController();
     apiFetch('/api/voice/transcribe', { method: 'POST', body: blob, signal: currentController.signal })
       .then(function (r) { return r.json(); })
@@ -445,6 +404,32 @@
         console.error('transcribe:', e);
         setPhase('idle');
       });
+  }
+
+  function processAudio(blob) {
+    blob.arrayBuffer().then(function(buf) {
+      var tmpCtx = new (window.AudioContext || window.webkitAudioContext)();
+      tmpCtx.decodeAudioData(buf, function(decoded) {
+        var data = decoded.getChannelData(0);
+        var sum = 0;
+        for (var i = 0; i < data.length; i++) sum += data[i] * data[i];
+        var rms = Math.sqrt(sum / data.length);
+        var hasSpeech = rms >= VAD_THRESHOLD;
+        tmpCtx.close();
+        if (!hasSpeech) {
+          setPhase('idle');
+          showStatus('未检测到语音');
+          return;
+        }
+        doTranscribe(blob);
+      }, function() {
+        // decodeAudioData failed — fall through to ASR
+        doTranscribe(blob);
+      });
+    }).catch(function() {
+      doTranscribe(blob);
+    });
+    return; // async path takes over
   }
 
   // ── Send ─────────────────────────────────────────────────

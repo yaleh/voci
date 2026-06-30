@@ -205,3 +205,16 @@ func TestSweepStaleLocks_GlobError_DirNotExist(t *testing.T) {
 		t.Logf("SweepStaleLocks on nonexistent dir: %v (acceptable)", err)
 	}
 }
+
+func TestSweepStaleLocks_CorruptJSON(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(dir, 0o700)
+	// Write corrupt JSON as a lock file — sweep should remove it.
+	os.WriteFile(filepath.Join(dir, "corrupt.lock"), []byte("not json {{{"), 0o600)
+	if err := SweepStaleLocks(dir); err != nil {
+		t.Fatalf("SweepStaleLocks: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "corrupt.lock")); !os.IsNotExist(err) {
+		t.Error("corrupt lock file should have been removed by sweep")
+	}
+}

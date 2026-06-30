@@ -138,3 +138,30 @@ func TestSweepStaleStatuses_DirNotExist(t *testing.T) {
 		t.Fatalf("expected nil error for nonexistent dir, got: %v", err)
 	}
 }
+
+func TestReadStatus_CorruptJSON(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(filepath.Join(dir, "corrupt.status"), []byte("not json {{{"), 0o600)
+	_, err := session.ReadStatus(dir, "corrupt")
+	if err == nil {
+		t.Fatal("expected error for corrupt JSON status file")
+	}
+}
+
+func TestSweepStaleStatuses_ZeroPIDLock(t *testing.T) {
+	dir := t.TempDir()
+	// Write a status file with a lock file containing pid=0 (considered dead).
+	if err := session.WriteStatus(dir, "zero-pid", "http://127.0.0.1:9000", "https://share.example.com", "tok"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WriteLock(dir, "zero-pid", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SweepStaleStatuses(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "zero-pid.status")); !os.IsNotExist(err) {
+		t.Error("status file with pid=0 lock should have been removed")
+	}
+}

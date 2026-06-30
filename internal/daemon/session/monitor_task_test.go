@@ -119,3 +119,17 @@ func TestWriteMonitorTaskID_OverwritesExisting(t *testing.T) {
 		t.Errorf("ReadMonitorTaskID = %q, want task-new", got)
 	}
 }
+
+func TestWriteMonitorTaskID_ReadOnlyDir(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod ineffective as root")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	err := WriteMonitorTaskID(dir, "sess-ro", "task-1")
+	if err == nil {
+		t.Fatal("expected error when writing to read-only dir")
+	}
+}

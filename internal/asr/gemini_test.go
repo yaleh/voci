@@ -521,3 +521,52 @@ func TestTranscribeGemini_InvalidResponseJSON(t *testing.T) {
 		t.Errorf("expected empty string for invalid JSON, got %q", result)
 	}
 }
+
+func TestTranscribeGemini_HTTPNetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// accept connection but do nothing — not needed; we close server before request
+	}))
+	srv.Close() // close listener → connection refused on next dial
+	wavPath := writeTempWav(t)
+	result := TranscribeGemini(context.Background(), "key", wavPath, srv.URL, "", "", nil)
+	if result != "" {
+		t.Errorf("expected empty string on network error, got %q", result)
+	}
+}
+
+func TestGeminiChat_HTTPNetworkError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Close()
+
+	old := geminiChatTestBaseURL
+	geminiChatTestBaseURL = srv.URL
+	defer func() { geminiChatTestBaseURL = old }()
+
+	_, err := GeminiChat(context.Background(), "test-key", "", []string{"user"}, []string{"hello"})
+	if err == nil {
+		t.Fatal("expected error on network failure")
+	}
+	if !strings.Contains(err.Error(), "http") {
+		t.Errorf("error should mention 'http', got: %v", err)
+	}
+}
+
+func TestGeminiChat_DecodeError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{invalid`))
+	}))
+	defer srv.Close()
+
+	old := geminiChatTestBaseURL
+	geminiChatTestBaseURL = srv.URL
+	defer func() { geminiChatTestBaseURL = old }()
+
+	_, err := GeminiChat(context.Background(), "test-key", "", []string{"user"}, []string{"hello"})
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+	if !strings.Contains(err.Error(), "decode") {
+		t.Errorf("error should mention 'decode', got: %v", err)
+	}
+}

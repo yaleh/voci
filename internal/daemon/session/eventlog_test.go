@@ -128,3 +128,21 @@ func TestAppendEvent_EventHasTimestamp(t *testing.T) {
 		t.Errorf("Timestamp %q is not valid RFC3339: %v", got.Timestamp, err)
 	}
 }
+
+func TestAppendEvent_ReadOnlyParent(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("chmod ineffective as root")
+	}
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "ro-parent")
+	os.MkdirAll(parent, 0o444)
+	if err := os.Chmod(parent, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "events.log")
+	ev := Event{Rewritten: "test", Kind: "direct_prompt", RawTranscript: "test"}
+	err := AppendEvent(path, ev)
+	if err == nil {
+		t.Fatal("expected error when writing to read-only parent dir")
+	}
+}

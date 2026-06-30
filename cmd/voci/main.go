@@ -171,6 +171,8 @@ func run(
 	serveHostFlag := fs.String("serve-host", "127.0.0.1", "bind host for serve HTTP server (use 0.0.0.0 for LAN access)")
 	shareFlag := fs.Bool("share", false, "expose serve port via Cloudflare Quick Tunnel")
 	shareAuthFlag := fs.String("share-auth", "", "Bearer token for --share (auto-generated if empty)")
+	lockDirFlag := fs.String("lock-dir", "", "directory for per-session lock files (empty = no lock)")
+	sessionIDFlag := fs.String("session-id", "", "session ID for lock file (auto-generated if --lock-dir set and empty)")
 
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -200,6 +202,21 @@ func run(
 
 		if startServeFn != nil {
 			return startServeFn(addr, stdout, perCallHint)
+		}
+
+		// Per-session lock file management.
+		// The lock is written inside OnListening (after the real port is known) and
+		// removed via defer when StartWithContext returns (clean shutdown or context cancel).
+		lockDir := *lockDirFlag
+		sessionID := *sessionIDFlag
+		if lockDir != "" {
+			if sessionID == "" {
+				sessionID = daemon.NewSessionID()
+			}
+			if err := daemon.SweepStaleLocks(lockDir); err != nil {
+				return fmt.Errorf("sweep stale locks: %w", err)
+			}
+			defer daemon.RemoveLock(lockDir, sessionID) //nolint:errcheck
 		}
 
 		// Default: build real Server with stdout as the event sink.
@@ -266,6 +283,13 @@ func run(
 		}
 		srv.OnListening = func(a net.Addr) {
 			fmt.Fprintf(os.Stderr, "voci serve: listening on %s\n", a.String())
+			if lockDir != "" {
+				_, portStr, _ := net.SplitHostPort(a.String())
+				port, _ := strconv.Atoi(portStr)
+				if err := daemon.WriteLock(lockDir, sessionID, os.Getpid(), port); err != nil {
+					fmt.Fprintf(os.Stderr, "voci serve: WriteLock: %v\n", err)
+				}
+			}
 		}
 		if *shareFlag {
 			token := *shareAuthFlag

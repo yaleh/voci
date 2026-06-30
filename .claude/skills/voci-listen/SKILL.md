@@ -1,6 +1,6 @@
 ---
 name: voci-listen
-description: "Arms a persistent Monitor with \"voci serve --share --serve-port $PORT\" (per-session OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). Each session writes a per-session lock file ~/.voci/<SESSION_ID>.lock; stale locks (dead PID) are swept on cold-start. Merges stderr into stdout via 2>&1 and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via reconnectGuard (re-arms Monitor on existing port if lock+PID still live). Stops when ~/.voci/.listen-stop sentinel is present."
+description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir and removes it on exit; no separate background start needed. Merges stderr into stdout via 2>&1 and grep-filters to three line types: JSON events (Rewritten field → execute inline), share-URL lines (display to user), and Bearer-token lines (display to user). Single-instance: sweeps stale voci-listen Monitor tasks before arming. Recovers across /clear via reconnectGuard (detects live Monitor task via TaskList). Stops when ~/.voci/.listen-stop sentinel is present."
 allowed-tools: Bash, Read, Monitor, TaskList, TaskStop
 contracts:
   - grep: "Monitor(persistent=true"
@@ -43,9 +43,8 @@ exists       :: Path → Bool
 -- Business logic signatures
 listenLoop        :: () → Outcome          -- entry point
 stopStaleMon      :: () → ()               -- stop orphaned Monitor tasks + sweep stale lock files
-sweepStaleLocks   :: () → ()               -- remove ~/.voci/*.lock files whose PID is dead
-manageLock        :: () → (SESSION_ID, PORT) -- cold-start: generate UUID, start voci serve, write lock
-reconnectGuard    :: () → Bool             -- true if this session's lock+PID is still live (skip cold-start)
+manageLock        :: () → SESSION_ID       -- cold-start: generate UUID for session, no background start
+reconnectGuard    :: () → (Bool, SESSION_ID, PORT) -- true if a live Monitor task + lock exists
 stopSentinel      :: () → Bool             -- true when ~/.voci/.listen-stop exists
 classifyEvent     :: Line → EventKind      -- distinguish voice events from startup info lines
 extractInstruction :: Line → String        -- parse JSON, return Rewritten field; raw fallback
@@ -82,12 +81,15 @@ listenLoop() = {
   if (live):
     goto: armMonitor(SESSION_ID, PORT),
 
-  -- Cold-start: generate a UUID session ID, let OS pick a free port (--serve-port 0),
-  -- capture the resolved port from stderr, write ~/.voci/<SESSION_ID>.lock.
-  (SESSION_ID, PORT): manageLock(),
+  -- Cold-start: generate a session ID; voci serve itself handles port assignment
+  -- (--serve-port 0), lock writing (--lock-dir), and lock cleanup (on exit).
+  SESSION_ID: manageLock(),
 
-  armMonitor(SESSION_ID, PORT):
-  -- Arm persistent Monitor on voci serve --share with the per-session port.
+  armMonitor(SESSION_ID):
+  -- Arm persistent Monitor on voci serve --share with OS-assigned port.
+  -- --lock-dir ~/.voci and --session-id $SESSION_ID are passed to voci serve so
+  -- the binary writes ~/.voci/$SESSION_ID.lock once the listener is ready and
+  -- removes it on clean exit (no separate manageLock bash dance needed).
   -- The command merges stderr→stdout (2>&1) and grep-filters to three line types:
   --   1. JSON event lines      (contain "rewritten") → voice instruction to execute
   --   2. "voci share URL: …"  (from stderr)         → Cloudflare URL to display
@@ -95,7 +97,7 @@ listenLoop() = {
   -- On wake-up: classifyEvent decides whether to display or execute.
   -- The description carries a re-invoke hint for cross-/clear recovery.
   event: Monitor(persistent=true,
-           command="voci serve --share --serve-port $PORT 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
+           command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
            description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"),
 
   if (stopSentinel()):
@@ -116,30 +118,26 @@ stopStaleMon() = {
   --         echo "[voci-listen] stopStaleMon: stopping stale Monitor <task-id>"
   -- TaskList and TaskStop are harness primitives — invoke as tool calls,
   -- not as bash commands. Do NOT use shell process signals.
-  -- Step 4: Call sweepStaleLocks() to remove orphaned .lock files.
-}
-
-sweepStaleLocks() = {
-  -- Iterate ~/.voci/*.lock; for each file extract the "pid" field via jq;
-  -- if kill -0 $pid returns non-zero (process gone), delete the file.
-  -- A live PID is never signaled — kill -0 is a pure existence check.
+  -- Step 4: The voci binary sweeps stale lock files automatically via SweepStaleLocks
+  --         when --lock-dir is passed; no separate bash sweep is needed here.
 }
 
 manageLock() = {
-  -- Generate SESSION_ID=$(uuidgen)
-  -- Start voci serve --share --serve-port 0 in the background, capturing stderr.
-  -- Parse "voci serve: listening on <host>:<PORT>" from stderr to extract PORT.
-  -- Record VOCI_PID=$! (the voci serve process PID).
-  -- Write ~/.voci/$SESSION_ID.lock as JSON: {"session_id":"...","pid":VOCI_PID,"port":PORT}
-  -- Return (SESSION_ID, PORT).
+  -- Generate SESSION_ID (32-char hex via uuidgen or /proc/sys/kernel/random/uuid).
+  -- No background voci serve start — the Monitor command owns the process.
+  -- voci serve --lock-dir ~/.voci --session-id $SESSION_ID writes the lock itself
+  -- in its OnListening callback and removes it on exit via defer.
+  -- Return SESSION_ID.
 }
 
 reconnectGuard() = {
-  -- Check whether SESSION_ID env var (or a known lock file) points to a still-live session.
-  -- If ~/.voci/$SESSION_ID.lock exists and kill -0 $recorded_pid succeeds:
+  -- Call TaskList harness tool.
+  -- If any task has description containing "voci-listen" AND status RUNNING:
+  --   Read ~/.voci/*.lock to find the live session (written by voci serve).
   --   return (live=true, SESSION_ID, PORT_from_lock)
   -- Otherwise:
   --   return (live=false, "", 0)
+  -- Liveness is inferred from the Monitor task status; no bash kill -0 loop needed.
 }
 
 cleanupLock(SESSION_ID) = {
@@ -177,17 +175,8 @@ for task in tasks:
 
 ### sweepStaleLocks
 
-```bash
-VOCI_DIR="${HOME}/.voci"
-for f in "$VOCI_DIR"/*.lock; do
-  [ -f "$f" ] || continue
-  pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
-  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
-    echo "[voci-listen] sweepStaleLocks: removing stale lock $f (pid=$pid)"
-    rm -f "$f"
-  fi
-done
-```
+Stale lock cleanup is now handled by the `voci` binary via `daemon.SweepStaleLocks`
+when `--lock-dir` is passed. No bash sweep is required here.
 
 ### stopSentinel check
 
@@ -201,83 +190,60 @@ fi
 
 ### manageLock (cold-start)
 
+Generate a session ID only. The Monitor command is responsible for starting `voci serve`
+with `--lock-dir` and `--session-id`; the binary writes the lock file itself.
+
 ```bash
 VOCI_DIR="${HOME}/.voci"
 mkdir -p "$VOCI_DIR"
 
-SESSION_ID=$(uuidgen)
-LOCK_FILE="$VOCI_DIR/$SESSION_ID.lock"
-
-# Start voci serve with OS-assigned port; capture stderr to extract port.
-TMPLOG=$(mktemp)
-voci serve --share --serve-port 0 2>"$TMPLOG" &
-VOCI_PID=$!
-
-# Wait for "voci serve: listening on <addr>" line (up to 10s).
-PORT=""
-for i in $(seq 1 100); do
-  PORT=$(grep -oP '(?<=voci serve: listening on )[^:]+:\K[0-9]+' "$TMPLOG" 2>/dev/null | head -1)
-  [ -n "$PORT" ] && break
-  sleep 0.1
-done
-rm -f "$TMPLOG"
-
-if [ -z "$PORT" ]; then
-  echo "[voci-listen] manageLock: failed to capture port from voci serve stderr" >&2
-  kill "$VOCI_PID" 2>/dev/null
-  exit 1
-fi
-
-# Write lock file.
-printf '{"session_id":"%s","pid":%d,"port":%d}' "$SESSION_ID" "$VOCI_PID" "$PORT" > "$LOCK_FILE"
-echo "[voci-listen] manageLock: session=$SESSION_ID pid=$VOCI_PID port=$PORT lock=$LOCK_FILE"
+SESSION_ID=$(uuidgen || cat /proc/sys/kernel/random/uuid)
+echo "[voci-listen] manageLock: session=$SESSION_ID"
+# No background voci serve start; the Monitor command below owns the process.
 ```
 
 ### reconnectGuard
 
-On Monitor re-invoke (new session after `/clear`), check if the current session's
-lock file is still valid:
+On Monitor re-invoke (new session after `/clear`), check whether a voci-listen Monitor
+task is still running using the TaskList harness tool:
 
-```bash
-VOCI_DIR="${HOME}/.voci"
-# SESSION_ID is set from a prior cold-start (passed via Monitor description or env).
-# In practice the skill re-invokes itself, so SESSION_ID must be recoverable.
-# Look for exactly one lock file whose PID is alive.
-LIVE_LOCK=""
-for f in "$VOCI_DIR"/*.lock; do
-  [ -f "$f" ] || continue
-  pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    LIVE_LOCK="$f"
-    SESSION_ID=$(jq -r '.session_id' "$f")
-    PORT=$(jq -r '.port' "$f")
-    break
-  fi
-done
-
-if [ -n "$LIVE_LOCK" ]; then
-  echo "[voci-listen] reconnectGuard: reusing session=$SESSION_ID pid=$pid port=$PORT"
-  # → skip manageLock, arm Monitor directly on PORT
-else
-  echo "[voci-listen] reconnectGuard: no live session found — proceeding with cold-start"
-  # → run manageLock
-fi
 ```
+# Pseudocode — these are harness tool calls, not bash commands:
+tasks = TaskList()
+running_voci = [t for t in tasks if "voci-listen" in t.description and t.status == RUNNING]
+if running_voci:
+  # Read the live lock to recover SESSION_ID and PORT for display.
+  for f in ~/.voci/*.lock:
+    entry = ReadLock(f)
+    SESSION_ID = entry.session_id
+    PORT       = entry.port
+    echo "[voci-listen] reconnectGuard: reusing session=$SESSION_ID port=$PORT"
+    return (live=true, SESSION_ID, PORT)
+else:
+  echo "[voci-listen] reconnectGuard: no live session found — proceeding with cold-start"
+  return (live=false, "", 0)
+```
+
+Liveness is determined by Monitor task status, not by `kill -0` PID checks.
 
 ### Arm Monitor
 
-After `manageLock` or `reconnectGuard`, arm the persistent Monitor using the resolved `$PORT`:
+After `manageLock` or `reconnectGuard`, arm the persistent Monitor using `$SESSION_ID`.
+`--serve-port 0` lets the OS assign a free port; `--lock-dir` and `--session-id` tell
+the binary to write and clean up its own lock file:
 
 ```
 Monitor(persistent=true,
-  command="voci serve --share --serve-port $PORT 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
+  command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID 2>&1 | grep --line-buffered -E '\"rewritten\"|voci share URL|Bearer token'",
   description="voci-listen: a voice event has arrived — extract the Rewritten field from the JSON line and execute it as the next in-session instruction; if this is a new session (after /clear or context compaction) re-invoke /voci-listen first to restore the listening loop"
 )
 ```
 
-`voci serve --share --serve-port $PORT` starts the HTTP listener on `$PORT`, launches a
-Cloudflare Quick Tunnel, and writes the public URL and Bearer token to stderr. The
-`2>&1 | grep` pipeline routes stderr into stdout and filters down to three line patterns:
+`voci serve --share --serve-port 0` starts the HTTP listener on an OS-assigned port,
+launches a Cloudflare Quick Tunnel, and writes the public URL and Bearer token to stderr.
+The binary writes `~/.voci/$SESSION_ID.lock` (with real PID and port) once listening,
+and removes it on clean exit. The `2>&1 | grep` pipeline routes stderr into stdout and
+filters down to three line patterns:
 
 | Pattern | Source | Action |
 |---|---|---|

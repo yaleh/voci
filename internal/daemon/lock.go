@@ -1,12 +1,26 @@
 package daemon
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
 )
+
+// NewSessionID returns a random 32-character lowercase hex string suitable for
+// use as a per-session lock file identifier. It uses crypto/rand for uniqueness.
+func NewSessionID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Should never happen on a healthy OS; fall back to a placeholder that
+		// will still be unique enough for lock-file naming.
+		panic("crypto/rand: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
 
 // LockEntry is the JSON payload written to a per-session lock file.
 type LockEntry struct {
@@ -19,7 +33,9 @@ func lockPath(dir, sessionID string) string {
 	return filepath.Join(dir, sessionID+".lock")
 }
 
-// WriteLock writes a LockEntry to <dir>/<sessionID>.lock as JSON.
+// WriteLock atomically writes a LockEntry to <dir>/<sessionID>.lock as JSON.
+// It writes to a .tmp file first and then renames it to the final path so
+// concurrent readers never observe a partial write.
 func WriteLock(dir, sessionID string, pid, port int) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -29,7 +45,16 @@ func WriteLock(dir, sessionID string, pid, port int) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(lockPath(dir, sessionID), data, 0o600)
+	final := lockPath(dir, sessionID)
+	tmp := final + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		os.Remove(tmp) //nolint:errcheck
+		return err
+	}
+	return nil
 }
 
 // ReadLock reads and decodes the lock file for sessionID from dir.

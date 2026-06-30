@@ -28,6 +28,35 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 #action-left-recording, #action-left-processing,
 #cancel-recording-btn, #processing-dots,
 #cancel-processing-btn { display: none; }
+
+#voci-status {
+  display: none;
+  margin: 6px 12px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #0e1422;
+  border: 1px solid #1a2440;
+  font-size: 11px;
+  color: #4a6080;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+#clear-btn {
+  display: none;
+  height: 34px;
+  padding: 0 11px;
+  border-radius: 8px;
+  background: none;
+  border: 1px solid #131c2e;
+  color: #4a6080;
+  font-size: 14px;
+  font-family: 'Space Grotesk', sans-serif;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+#clear-btn:hover { border-color: #2a3a50; color: #7a9aba; }
 </style>
 </head>
 <body>
@@ -72,6 +101,8 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   <!-- BOTTOM INPUT AREA -->
   <div style="flex-shrink: 0; border-top: 1px solid #0d1018; background: #060810;">
 
+    <div id="voci-status"></div>
+
     <div id="text-input-wrap" style="padding: 10px 12px 0 12px;">
       <textarea id="voci-compose" placeholder="或直接输入…" rows="3" style="width: 100%; background: #0b0e1a; border: 1px solid #131c2e; border-radius: 10px; padding: 10px 12px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; color: #e4eaf5; line-height: 1.55; resize: none; outline: none; caret-color: #5b9cf6; box-sizing: border-box; display: block;"></textarea>
     </div>
@@ -110,10 +141,13 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
         <span style="font-size: 11px; color: #3a4a60; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.04em;">analyzing…</span>
       </div>
 
-      <button id="send-btn" style="height: 34px; padding: 0 16px; border-radius: 8px; background: #090c15; border: 1px solid #0f1522; color: #252f42; font-size: 12px; font-weight: 500; font-family: 'Space Grotesk', sans-serif; cursor: default; display: flex; align-items: center; gap: 6px; transition: background 0.2s, color 0.2s, border-color 0.2s;">
-        Send
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
-      </button>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <button id="clear-btn">×</button>
+        <button id="send-btn" style="height: 34px; padding: 0 16px; border-radius: 8px; background: #090c15; border: 1px solid #0f1522; color: #252f42; font-size: 12px; font-weight: 500; font-family: 'Space Grotesk', sans-serif; cursor: default; display: flex; align-items: center; gap: 6px; transition: background 0.2s, color 0.2s, border-color 0.2s;">
+          Send
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+        </button>
+      </div>
       <button id="cancel-recording-btn" style="height: 34px; padding: 0 13px; border-radius: 8px; background: none; border: 1px solid #131c2e; color: #3d5070; font-size: 11.5px; font-family: 'Space Grotesk', sans-serif; cursor: pointer;">✕ cancel</button>
       <span id="processing-dots" style="height: 34px; padding: 0 13px; align-items: center; font-size: 11px; color: #252f42;">···</span>
       <button id="cancel-processing-btn" style="height: 34px; padding: 0 13px; border-radius: 8px; background: none; border: 1px solid #131c2e; color: #3d5070; font-size: 11.5px; font-family: 'Space Grotesk', sans-serif; cursor: pointer; align-items: center; gap: 5px;">✕ cancel</button>

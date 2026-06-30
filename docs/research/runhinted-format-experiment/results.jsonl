@@ -1,0 +1,18 @@
+{"variant": "A", "scenario_id": "boundary_violation", "rep": 0, "raw": "列出现有 task，并建议执行顺序", "hint_len": 249, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "A", "scenario_id": "boundary_violation", "rep": 1, "raw": "列出现有 task，并建议执行顺序", "hint_len": 249, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "B", "scenario_id": "boundary_violation", "rep": 0, "raw": "列出现有 task，并建议执行顺序", "hint_len": 249, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "B", "scenario_id": "boundary_violation", "rep": 1, "raw": "列出现有 task，并建议执行顺序", "hint_len": 249, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "C", "scenario_id": "boundary_violation", "rep": 0, "raw": "列出现有 task，并建议执行顺序", "hint_len": 249, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "C", "scenario_id": "boundary_violation", "rep": 1, "raw": "列出现有 task，并建议执行顺序", "hint_len": 249, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "A", "scenario_id": "normal_correction", "rep": 0, "raw": "修复 task forty nine 的 bug", "hint_len": 81, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "A", "scenario_id": "normal_correction", "rep": 1, "raw": "修复 task forty nine 的 bug", "hint_len": 81, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "B", "scenario_id": "normal_correction", "rep": 0, "raw": "修复 task forty nine 的 bug", "hint_len": 81, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "B", "scenario_id": "normal_correction", "rep": 1, "raw": "修复 task forty nine 的 bug", "hint_len": 81, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "C", "scenario_id": "normal_correction", "rep": 0, "raw": "修复 task forty nine 的 bug", "hint_len": 81, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "C", "scenario_id": "normal_correction", "rep": 1, "raw": "修复 task forty nine 的 bug", "hint_len": 81, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "A", "scenario_id": "empty_hint", "rep": 0, "raw": "今天天气怎么样", "hint_len": 0, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "A", "scenario_id": "empty_hint", "rep": 1, "raw": "今天天气怎么样", "hint_len": 0, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "B", "scenario_id": "empty_hint", "rep": 0, "raw": "今天天气怎么样", "hint_len": 0, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "B", "scenario_id": "empty_hint", "rep": 1, "raw": "今天天气怎么样", "hint_len": 0, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "C", "scenario_id": "empty_hint", "rep": 0, "raw": "今天天气怎么样", "hint_len": 0, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}
+{"variant": "C", "scenario_id": "empty_hint", "rep": 1, "raw": "今天天气怎么样", "hint_len": 0, "output": "", "corrected": "", "contains_task_list": false, "latency_s": 0.0, "model": "gemma4:26b"}

@@ -3,15 +3,21 @@ id: TASK-49
 title: >-
   RunHinted prompt format experiment: compare JSON/XML vs plain text for ASR
   correction quality
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-29 16:57'
-updated_date: '2026-06-29 16:59'
+updated_date: '2026-06-29 18:01'
 labels:
   - 'kind:basic'
   - 'kind:experiment'
 dependencies: []
-ordinal: 34000
+modified_files:
+  - internal/pipeline/hinted_variants.go
+  - internal/pipeline/hinted_experiment_test.go
+  - docs/research/runhinted-format-experiment/run_experiment.py
+  - docs/research/runhinted-format-experiment/results.jsonl
+  - docs/research/runhinted-format-experiment/report.md
+ordinal: 1000
 ---
 
 ## Description
@@ -112,19 +118,25 @@ GCL-self-report: E=3 C=1 H=1
 cap:propose=approved
 <!-- SECTION:NOTES:END -->
 
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented three RunHinted prompt format variants (A: output-only JSON, B: full JSON I/O, C: XML tags) in `internal/pipeline/hinted_variants.go`. Added 12 unit tests in `hinted_experiment_test.go` covering boundary violation, normal correction, and empty-hint scenarios for all three variants plus parser edge cases — all pass. Created `docs/research/runhinted-format-experiment/run_experiment.py` calling Gemini 2.5 Flash directly (--config CLI arg for API key); ran 3 reps × 3 variants × 3 scenarios = 27 calls, writing results to `results.jsonl`. Key finding: all three variants achieved 0% boundary violation rate on Gemini 2.5 Flash — the model follows instructions well enough that format choice doesn't differentiate at this capability level. Report recommends **Variant B (full JSON I/O)** for production replacement of RunHinted as it eliminates input-side conversational ambiguity most thoroughly and has the most stable parsing; difference will matter on weaker local models.
+<!-- SECTION:FINAL_SUMMARY:END -->
+
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 grep -q 'RunHintedVariantA' internal/pipeline/hinted_variants.go
-- [ ] #2 grep -q 'RunHintedVariantB' internal/pipeline/hinted_variants.go
-- [ ] #3 grep -q 'RunHintedVariantC' internal/pipeline/hinted_variants.go
-- [ ] #4 go build ./internal/pipeline/...
-- [ ] #5 test -f internal/pipeline/hinted_experiment_test.go
-- [ ] #6 grep -q 'TestRunHintedVariant' internal/pipeline/hinted_experiment_test.go
-- [ ] #7 go test ./internal/pipeline/... -run TestRunHintedVariant
-- [ ] #8 test -f docs/research/runhinted-format-experiment/run_experiment.py
-- [ ] #9 test -f docs/research/runhinted-format-experiment/results.jsonl
-- [ ] #10 grep -q '"variant"' docs/research/runhinted-format-experiment/results.jsonl
-- [ ] #11 test -f docs/research/runhinted-format-experiment/report.md
-- [ ] #12 grep -q '## 推荐方案' docs/research/runhinted-format-experiment/report.md
-- [ ] #13 grep -q '越界率' docs/research/runhinted-format-experiment/report.md
+- [x] #1 grep -q 'RunHintedVariantA' internal/pipeline/hinted_variants.go
+- [x] #2 grep -q 'RunHintedVariantB' internal/pipeline/hinted_variants.go
+- [x] #3 grep -q 'RunHintedVariantC' internal/pipeline/hinted_variants.go
+- [x] #4 go build ./internal/pipeline/...
+- [x] #5 test -f internal/pipeline/hinted_experiment_test.go
+- [x] #6 grep -q 'TestRunHintedVariant' internal/pipeline/hinted_experiment_test.go
+- [x] #7 go test ./internal/pipeline/... -run TestRunHintedVariant
+- [x] #8 test -f docs/research/runhinted-format-experiment/run_experiment.py
+- [x] #9 test -f docs/research/runhinted-format-experiment/results.jsonl
+- [x] #10 grep -q '"variant"' docs/research/runhinted-format-experiment/results.jsonl
+- [x] #11 test -f docs/research/runhinted-format-experiment/report.md
+- [x] #12 grep -q '## 推荐方案' docs/research/runhinted-format-experiment/report.md
+- [x] #13 grep -q '越界率' docs/research/runhinted-format-experiment/report.md
 <!-- DOD:END -->

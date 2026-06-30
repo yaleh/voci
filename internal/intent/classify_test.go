@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/ollama"
 	"github.com/yaleh/voci/internal/pipeline"
 )
@@ -47,8 +48,8 @@ func TestClassifyDirectPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if proposal.Kind != KindDirectPrompt {
-		t.Errorf("Kind = %q, want %q", proposal.Kind, KindDirectPrompt)
+	if proposal.Kind != model.KindDirectPrompt {
+		t.Errorf("Kind = %q, want %q", proposal.Kind, model.KindDirectPrompt)
 	}
 	if proposal.Confidence < 0.0 || proposal.Confidence > 1.0 {
 		t.Errorf("Confidence %v out of range [0,1]", proposal.Confidence)
@@ -64,8 +65,8 @@ func TestClassifyBacklogAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if proposal.Kind != KindBacklogAction {
-		t.Errorf("Kind = %q, want %q", proposal.Kind, KindBacklogAction)
+	if proposal.Kind != model.KindBacklogAction {
+		t.Errorf("Kind = %q, want %q", proposal.Kind, model.KindBacklogAction)
 	}
 }
 
@@ -78,8 +79,8 @@ func TestClassifyQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if proposal.Kind != KindQuery {
-		t.Errorf("Kind = %q, want %q", proposal.Kind, KindQuery)
+	if proposal.Kind != model.KindQuery {
+		t.Errorf("Kind = %q, want %q", proposal.Kind, model.KindQuery)
 	}
 }
 
@@ -92,8 +93,8 @@ func TestClassifyAmbiguous(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if proposal.Kind != KindAmbiguous {
-		t.Errorf("Kind = %q, want %q", proposal.Kind, KindAmbiguous)
+	if proposal.Kind != model.KindAmbiguous {
+		t.Errorf("Kind = %q, want %q", proposal.Kind, model.KindAmbiguous)
 	}
 }
 
@@ -187,8 +188,8 @@ func TestClassifyInvalidKindFallsBackToAmbiguous(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if proposal.Kind != KindAmbiguous {
-		t.Errorf("expected KindAmbiguous for invalid kind, got %q", proposal.Kind)
+	if proposal.Kind != model.KindAmbiguous {
+		t.Errorf("expected model.KindAmbiguous for invalid kind, got %q", proposal.Kind)
 	}
 	if proposal.Confidence != 0 {
 		t.Errorf("expected Confidence=0 for invalid kind, got %v", proposal.Confidence)
@@ -204,8 +205,8 @@ func TestClassifyUnparsableResponseFallsBackToAmbiguous(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if proposal.Kind != KindAmbiguous {
-		t.Errorf("expected KindAmbiguous for unparsable response, got %q", proposal.Kind)
+	if proposal.Kind != model.KindAmbiguous {
+		t.Errorf("expected model.KindAmbiguous for unparsable response, got %q", proposal.Kind)
 	}
 }
 

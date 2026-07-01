@@ -1,0 +1,60 @@
+{"audio":"A01.mp3","category":"A","variant":"V0","transcript":"打开 internal ASR gemini.go 够修改 BuildCached 函数","exact_match":false,"input_tokens":298,"output_tokens":19,"latency_ms":5082}
+{"audio":"A01.mp3","category":"A","variant":"V1","transcript":"打开 internal ASR Gemini go 修改 BuildCached 函数","exact_match":false,"input_tokens":398,"output_tokens":15,"latency_ms":3869}
+{"audio":"A01.mp3","category":"A","variant":"V2","transcript":"打开 internal/asr/gemini.go 修改 BuildCached 函数。","exact_match":true,"input_tokens":599,"output_tokens":19,"latency_ms":4310}
+{"audio":"A02.mp3","category":"A","variant":"V0","transcript":"重构 internal context builder, go的 SessionSource","exact_match":false,"input_tokens":276,"output_tokens":15,"latency_ms":4029}
+{"audio":"A02.mp3","category":"A","variant":"V1","transcript":"重構 internal context builder, go的 SessionSource","exact_match":false,"input_tokens":376,"output_tokens":20,"latency_ms":3338}
+{"audio":"A02.mp3","category":"A","variant":"V2","transcript":"重构 internal/context/builder.go 的 SessionSource。","exact_match":true,"input_tokens":577,"output_tokens":22,"latency_ms":2286}
+{"audio":"A03.mp3","category":"A","variant":"V0","transcript":"检查 internal demon handlers, go的 TranscribeFn","exact_match":false,"input_tokens":284,"output_tokens":20,"latency_ms":3080}
+{"audio":"A03.mp3","category":"A","variant":"V1","transcript":"検査 internal daemon handlers go の TranscribeFn","exact_match":false,"input_tokens":384,"output_tokens":14,"latency_ms":3289}
+{"audio":"A03.mp3","category":"A","variant":"V2","transcript":"检查 internal daemon handlers.go 的 TranscribeFn","exact_match":false,"input_tokens":585,"output_tokens":15,"latency_ms":2460}
+{"audio":"A04.mp3","category":"A","variant":"V0","transcript":"更新 CMD vocimain go的入口逻辑","exact_match":false,"input_tokens":255,"output_tokens":19,"latency_ms":2472}
+{"audio":"A04.mp3","category":"A","variant":"V1","transcript":"更新 CMD Voci main go 的入口逻辑","exact_match":false,"input_tokens":355,"output_tokens":19,"latency_ms":4075}
+{"audio":"A04.mp3","category":"A","variant":"V2","transcript":"更新 CMD main 的入口逻辑。","exact_match":false,"input_tokens":556,"output_tokens":12,"latency_ms":2547}
+{"audio":"A05.mp3","category":"A","variant":"V0","transcript":"查看 internal pipeline Rewrite go的 Rewrite 函数","exact_match":false,"input_tokens":283,"output_tokens":13,"latency_ms":2508}
+{"audio":"A05.mp3","category":"A","variant":"V1","transcript":"查看 internal pipeline Rewrite, go 的 Rewrite 函数。","exact_match":false,"input_tokens":383,"output_tokens":19,"latency_ms":2751}
+{"audio":"A05.mp3","category":"A","variant":"V2","transcript":"查看 internal pipeline rewrite, go 的 Rewrite 函数","exact_match":false,"input_tokens":584,"output_tokens":14,"latency_ms":2662}
+{"audio":"A06.mp3","category":"A","variant":"V0","transcript":"修改 internal inject marks go.max injector","exact_match":false,"input_tokens":268,"output_tokens":18,"latency_ms":2693}
+{"audio":"A06.mp3","category":"A","variant":"V1","transcript":"修改 internal inject tmux go.max injector.","exact_match":false,"input_tokens":368,"output_tokens":14,"latency_ms":3779}
+{"audio":"A06.mp3","category":"A","variant":"V2","transcript":"修改 internal inject max go 的 max injector","exact_match":false,"input_tokens":569,"output_tokens":13,"latency_ms":7478}
+{"audio":"A07.mp3","category":"A","variant":"V0","transcript":"添加 internal demon web recorder.src.js 的测试","exact_match":false,"input_tokens":303,"output_tokens":21,"latency_ms":3313}
+{"audio":"A07.mp3","category":"A","variant":"V1","transcript":"添加 internal demon web recorder.src.js 的测试","exact_match":false,"input_tokens":403,"output_tokens":16,"latency_ms":6741}
+{"audio":"A07.mp3","category":"A","variant":"V2","transcript":"添加 internal demon web recorder.src.js 的测试。","exact_match":false,"input_tokens":604,"output_tokens":17,"latency_ms":2641}
+{"audio":"A08.mp3","category":"A","variant":"V0","transcript":"修复 internal wire.go 的依赖注入","exact_match":false,"input_tokens":256,"output_tokens":13,"latency_ms":2060}
+{"audio":"A08.mp3","category":"A","variant":"V1","transcript":"修复 internal/wire/wire.go 的依赖注入","exact_match":true,"input_tokens":356,"output_tokens":21,"latency_ms":2114}
+{"audio":"A08.mp3","category":"A","variant":"V2","transcript":"修复 internal wire wire.go 的依赖注入。","exact_match":false,"input_tokens":557,"output_tokens":19,"latency_ms":2505}
+{"audio":"B01.mp3","category":"B","variant":"V0","transcript":"创建 pull request 到 main 分支","exact_match":true,"input_tokens":232,"output_tokens":17,"latency_ms":1937}
+{"audio":"B01.mp3","category":"B","variant":"V1","transcript":"创建 pull request 到 main 分支","exact_match":true,"input_tokens":332,"output_tokens":12,"latency_ms":2211}
+{"audio":"B01.mp3","category":"B","variant":"V2","transcript":"创建 pull request 到 main 分支。","exact_match":true,"input_tokens":533,"output_tokens":17,"latency_ms":1861}
+{"audio":"B02.mp3","category":"B","variant":"V0","transcript":"运行 dockerfile 构件容器镜像","exact_match":false,"input_tokens":238,"output_tokens":13,"latency_ms":2331}
+{"audio":"B02.mp3","category":"B","variant":"V1","transcript":"运行 Dockerfile 构件容器镜像","exact_match":false,"input_tokens":338,"output_tokens":18,"latency_ms":1925}
+{"audio":"B02.mp3","category":"B","variant":"V2","transcript":"运行 Dockerfile 构建容器镜像。","exact_match":true,"input_tokens":539,"output_tokens":12,"latency_ms":2415}
+{"audio":"B03.mp3","category":"B","variant":"V0","transcript":"配置 HTTP handler 处理请求","exact_match":true,"input_tokens":247,"output_tokens":15,"latency_ms":2484}
+{"audio":"B03.mp3","category":"B","variant":"V1","transcript":"配置 HTTP handler 处理请求","exact_match":true,"input_tokens":347,"output_tokens":10,"latency_ms":2207}
+{"audio":"B03.mp3","category":"B","variant":"V2","transcript":"配置 HTTP handler 处理请求","exact_match":true,"input_tokens":548,"output_tokens":10,"latency_ms":2508}
+{"audio":"B04.mp3","category":"B","variant":"V0","transcript":"添加单元测试 覆盖边缘情况","exact_match":true,"input_tokens":247,"output_tokens":12,"latency_ms":2526}
+{"audio":"B04.mp3","category":"B","variant":"V1","transcript":"添加单元测试覆盖边缘情况","exact_match":true,"input_tokens":347,"output_tokens":11,"latency_ms":2114}
+{"audio":"B04.mp3","category":"B","variant":"V2","transcript":"添加单元测试覆盖边缘情况。","exact_match":true,"input_tokens":548,"output_tokens":12,"latency_ms":2193}
+{"audio":"B05.mp3","category":"B","variant":"V0","transcript":"使用 websocket 实现实时通讯","exact_match":false,"input_tokens":248,"output_tokens":10,"latency_ms":2629}
+{"audio":"B05.mp3","category":"B","variant":"V1","transcript":"使用 websocket 实现实时通信","exact_match":true,"input_tokens":348,"output_tokens":10,"latency_ms":4963}
+{"audio":"B05.mp3","category":"B","variant":"V2","transcript":"使用 WebSocket 实现实时通信。","exact_match":true,"input_tokens":549,"output_tokens":11,"latency_ms":2250}
+{"audio":"B06.mp3","category":"B","variant":"V0","transcript":"优化数据库查询性能","exact_match":true,"input_tokens":222,"output_tokens":14,"latency_ms":2410}
+{"audio":"B06.mp3","category":"B","variant":"V1","transcript":"优化数据库查询性能","exact_match":true,"input_tokens":322,"output_tokens":9,"latency_ms":2900}
+{"audio":"B06.mp3","category":"B","variant":"V2","transcript":"优化数据库查询性能。","exact_match":true,"input_tokens":523,"output_tokens":10,"latency_ms":2575}
+{"audio":"B07.mp3","category":"B","variant":"V0","transcript":"实现 restful API 接口","exact_match":true,"input_tokens":231,"output_tokens":10,"latency_ms":2120}
+{"audio":"B07.mp3","category":"B","variant":"V1","transcript":"实现 restful API 接口","exact_match":true,"input_tokens":331,"output_tokens":10,"latency_ms":2053}
+{"audio":"B07.mp3","category":"B","variant":"V2","transcript":"实现 restful API 接口","exact_match":true,"input_tokens":532,"output_tokens":15,"latency_ms":2057}
+{"audio":"B08.mp3","category":"B","variant":"V0","transcript":"设置 CI/CD pipeline 自动部署","exact_match":true,"input_tokens":255,"output_tokens":18,"latency_ms":2295}
+{"audio":"B08.mp3","category":"B","variant":"V1","transcript":"设置 CI CD pipeline 自动部署","exact_match":false,"input_tokens":355,"output_tokens":12,"latency_ms":2859}
+{"audio":"B08.mp3","category":"B","variant":"V2","transcript":"设置 CICD pipeline 自动部署","exact_match":false,"input_tokens":556,"output_tokens":12,"latency_ms":1970}
+{"audio":"C01.mp3","category":"C","variant":"V0","transcript":"voci 语音输入工具","exact_match":true,"input_tokens":212,"output_tokens":11,"latency_ms":2291}
+{"audio":"C01.mp3","category":"C","variant":"V1","transcript":"Voci 语音输入工具","exact_match":true,"input_tokens":312,"output_tokens":11,"latency_ms":2026}
+{"audio":"C01.mp3","category":"C","variant":"V2","transcript":"Voci 语音输入工具","exact_match":true,"input_tokens":513,"output_tokens":11,"latency_ms":2334}
+{"audio":"C02.mp3","category":"C","variant":"V0","transcript":"ERROR: http: Post \"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent\": context deadline exceeded","exact_match":false,"input_tokens":0,"output_tokens":0,"latency_ms":60058}
+{"audio":"C02.mp3","category":"C","variant":"V1","transcript":"hinted 提示修正后的结果","exact_match":true,"input_tokens":326,"output_tokens":12,"latency_ms":2556}
+{"audio":"C02.mp3","category":"C","variant":"V2","transcript":"hinted 提示修正后的结果","exact_match":true,"input_tokens":527,"output_tokens":12,"latency_ms":3052}
+{"audio":"C03.mp3","category":"C","variant":"V0","transcript":"使用 BuildCached 加速编译","exact_match":true,"input_tokens":231,"output_tokens":11,"latency_ms":2206}
+{"audio":"C03.mp3","category":"C","variant":"V1","transcript":"使用 BuildCached 加速编译","exact_match":true,"input_tokens":331,"output_tokens":16,"latency_ms":2514}
+{"audio":"C03.mp3","category":"C","variant":"V2","transcript":"使用 BuildCached 加速编译。","exact_match":true,"input_tokens":532,"output_tokens":12,"latency_ms":2491}
+{"audio":"C04.mp3","category":"C","variant":"V0","transcript":"检查 SessionSource 的来源","exact_match":true,"input_tokens":219,"output_tokens":10,"latency_ms":2488}
+{"audio":"C04.mp3","category":"C","variant":"V1","transcript":"检查 SessionSource 的来源","exact_match":true,"input_tokens":319,"output_tokens":10,"latency_ms":2252}
+{"audio":"C04.mp3","category":"C","variant":"V2","transcript":"检查 SessionSource 的来源","exact_match":true,"input_tokens":520,"output_tokens":10,"latency_ms":2145}

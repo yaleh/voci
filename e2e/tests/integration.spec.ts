@@ -12,9 +12,9 @@ test.describe('GET / returns index.html', () => {
   });
 });
 
-test.describe('GET /recorder.js returns script', () => {
-  test('recorder.js is served and contains renderDialogue', async ({ page }) => {
-    const response = await page.request.get('/recorder.js');
+test.describe('GET /recorder.bundle.js returns script', () => {
+  test('recorder.bundle.js is served and contains renderDialogue', async ({ page }) => {
+    const response = await page.request.get('/recorder.bundle.js');
     expect(response.status()).toBe(200);
     const body = await response.text();
     expect(body).toContain('renderDialogue');

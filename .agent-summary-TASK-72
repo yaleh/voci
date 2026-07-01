@@ -1,0 +1,11 @@
+Phase A ✓ 2026-07-01T07:19:01Z
+Created package.json, recorder.src.js with esbuild imports, updated Makefile/build-web, index.html, .gitignore, fixed E2E test references
+Phase B ✓ $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Replaced esc() with mdToHtml() in renderDialogue for assistant messages, added injectMessages to __voiceTest, created markdown-render.spec.ts E2E tests
+
+DoD #1: PASS — go test ./... (all packages pass)
+DoD #2: PASS — npx playwright test markdown-render --reporter=list (4/4 pass)
+DoD #3: PASS — npx playwright test integration --reporter=list (8/8 pass, renamed recorder.js→recorder.bundle.js)
+DoD #4: PASS — npx playwright test voice-append no-flicker --reporter=list (16/16 pass)
+DoD #5: PASS — esbuild bundle produces ~159KB recorder.bundle.js with marked+DOMPurify
+DoD #6: PASS — recorder.bundle.js is in .gitignore and git-ignored

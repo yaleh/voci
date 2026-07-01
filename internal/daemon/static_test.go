@@ -51,9 +51,9 @@ func TestHandler_ServesRecorderJS(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/recorder.js")
+	resp, err := http.Get(ts.URL + "/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("GET /recorder.js: %v", err)
+		t.Fatalf("GET /recorder.bundle.js: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -98,12 +98,12 @@ func TestEmbeddedAssets_NonEmpty(t *testing.T) {
 		t.Error("web/index.html is empty")
 	}
 
-	rec, err := embeddedFS.ReadFile("web/recorder.js")
+	rec, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read web/recorder.js: %v", err)
+		t.Fatalf("read web/recorder.bundle.js: %v", err)
 	}
 	if len(rec) == 0 {
-		t.Error("web/recorder.js is empty")
+		t.Error("web/recorder.bundle.js is empty")
 	}
 }
 
@@ -114,7 +114,7 @@ func TestEmbeddedIndex_ReferencesRecorderAndFields(t *testing.T) {
 	}
 	body := string(data)
 
-	checks := []string{"recorder.js", "voci-compose", "voci-dialogue"}
+	checks := []string{"recorder.bundle.js", "voci-compose", "voci-dialogue"}
 	for _, want := range checks {
 		if !strings.Contains(body, want) {
 			t.Errorf("index.html missing %q", want)
@@ -123,9 +123,9 @@ func TestEmbeddedIndex_ReferencesRecorderAndFields(t *testing.T) {
 }
 
 func TestEmbeddedRecorder_UsesContract(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read web/recorder.js: %v", err)
+		t.Fatalf("read web/recorder.bundle.js: %v", err)
 	}
 	body := string(data)
 
@@ -138,7 +138,7 @@ func TestEmbeddedRecorder_UsesContract(t *testing.T) {
 	}
 	for _, want := range checks {
 		if !strings.Contains(body, want) {
-			t.Errorf("recorder.js missing %q", want)
+			t.Errorf("recorder.bundle.js missing %q", want)
 		}
 	}
 }
@@ -148,9 +148,9 @@ func TestEmbeddedRecorder_UsesContract(t *testing.T) {
 // /api/context polls with unchanged dialogue content do not mutate the DOM
 // (which would re-trigger CSS animations and cause visible flicker).
 func TestEmbeddedRecorder_NoDialogueFlicker(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read web/recorder.js: %v", err)
+		t.Fatalf("read web/recorder.bundle.js: %v", err)
 	}
 	body := string(data)
 
@@ -163,7 +163,7 @@ func TestEmbeddedRecorder_NoDialogueFlicker(t *testing.T) {
 	}
 	for _, g := range guards {
 		if !strings.Contains(body, g.pattern) {
-			t.Errorf("recorder.js missing anti-flicker guard %q (%s)", g.pattern, g.desc)
+			t.Errorf("recorder.bundle.js missing anti-flicker guard %q (%s)", g.pattern, g.desc)
 		}
 	}
 
@@ -178,26 +178,26 @@ func TestEmbeddedRecorder_NoDialogueFlicker(t *testing.T) {
 }
 
 func TestEmbeddedRecorder_HasAuthHeader(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read recorder.js: %v", err)
+		t.Fatalf("read recorder.bundle.js: %v", err)
 	}
 	if !strings.Contains(string(data), "Authorization") {
-		t.Error("recorder.js missing Authorization header")
+		t.Error("recorder.bundle.js missing Authorization header")
 	}
 }
 
 func TestEmbeddedRecorder_HasLocalStorageToken(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read recorder.js: %v", err)
+		t.Fatalf("read recorder.bundle.js: %v", err)
 	}
 	body := string(data)
 	if !strings.Contains(body, "localStorage") {
-		t.Error("recorder.js missing localStorage")
+		t.Error("recorder.bundle.js missing localStorage")
 	}
 	if !strings.Contains(body, "voci_token") {
-		t.Error("recorder.js missing voci_token")
+		t.Error("recorder.bundle.js missing voci_token")
 	}
 }
 
@@ -241,14 +241,14 @@ func TestEmbeddedIndex_TokenInputOptimizedFor6Digits(t *testing.T) {
 // waiting for hint changes from /api/context. The fix is that sendText() must
 // call renderContext(lastHint) directly after pushing to localMessages.
 func TestEmbeddedRecorder_SendTextRendersLocalMessages(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read recorder.js: %v", err)
+		t.Fatalf("read recorder.bundle.js: %v", err)
 	}
 	body := string(data)
 	idx := strings.Index(body, "function sendText")
 	if idx < 0 {
-		t.Fatal("sendText function not found in recorder.js")
+		t.Fatal("sendText function not found in recorder.bundle.js")
 	}
 	// Find the end of sendText (next top-level function or closing brace pattern)
 	fnBody := body[idx:min(len(body), idx+1100)]
@@ -297,16 +297,16 @@ func TestEmbeddedIndex_OverlayIsOpaque(t *testing.T) {
 // TestEmbeddedRecorder_AuthRequiredFlag verifies recorder.js maintains an
 // authRequired state variable that is set when the server probes with 401.
 func TestEmbeddedRecorder_AuthRequiredFlag(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read recorder.js: %v", err)
+		t.Fatalf("read recorder.bundle.js: %v", err)
 	}
 	body := string(data)
 	if !strings.Contains(body, "authRequired") {
-		t.Error("recorder.js missing authRequired state variable; required to block API calls when server demands Bearer token")
+		t.Error("recorder.bundle.js missing authRequired state variable; required to block API calls when server demands Bearer token")
 	}
 	if !strings.Contains(body, "401") {
-		t.Error("recorder.js does not check for HTTP 401 response; required for auth probe on init")
+		t.Error("recorder.bundle.js does not check for HTTP 401 response; required for auth probe on init")
 	}
 }
 
@@ -314,14 +314,14 @@ func TestEmbeddedRecorder_AuthRequiredFlag(t *testing.T) {
 // out early when auth is required but no token is stored, preventing data from being
 // loaded and rendered into the DOM behind the overlay.
 func TestEmbeddedRecorder_RefreshContextGuardedByAuth(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read recorder.js: %v", err)
+		t.Fatalf("read recorder.bundle.js: %v", err)
 	}
 	body := string(data)
 	idx := strings.Index(body, "function refreshContext")
 	if idx < 0 {
-		t.Fatal("refreshContext function not found in recorder.js")
+		t.Fatal("refreshContext function not found in recorder.bundle.js")
 	}
 	fnBody := body[idx:min(len(body), idx+400)]
 	if !strings.Contains(fnBody, "authRequired") {
@@ -332,14 +332,14 @@ func TestEmbeddedRecorder_RefreshContextGuardedByAuth(t *testing.T) {
 // TestEmbeddedRecorder_SaveTokenKickstartsPolling verifies that saveToken() calls
 // refreshContext() so context polling starts as soon as the user enters the token.
 func TestEmbeddedRecorder_SaveTokenKickstartsPolling(t *testing.T) {
-	data, err := embeddedFS.ReadFile("web/recorder.js")
+	data, err := embeddedFS.ReadFile("web/recorder.bundle.js")
 	if err != nil {
-		t.Fatalf("read recorder.js: %v", err)
+		t.Fatalf("read recorder.bundle.js: %v", err)
 	}
 	body := string(data)
 	idx := strings.Index(body, "function saveToken")
 	if idx < 0 {
-		t.Fatal("saveToken function not found in recorder.js")
+		t.Fatal("saveToken function not found in recorder.bundle.js")
 	}
 	fnBody := body[idx:min(len(body), idx+400)]
 	if !strings.Contains(fnBody, "refreshContext") {

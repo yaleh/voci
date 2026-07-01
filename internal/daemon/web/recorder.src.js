@@ -36,7 +36,8 @@ import DOMPurify from 'dompurify';
   function startPolling() {
     if (pollingStarted) return;
     pollingStarted = true;
-    setInterval(refreshContext, 5000);
+    refreshContext();
+    pollIntervalId = setInterval(refreshContext, C_CONFIG.contextPollMs);
   }
 
   // Fetches D-class VAD tuning values once (not polled) and overrides the local
@@ -113,6 +114,58 @@ import DOMPurify from 'dompurify';
   var MIN_AUDIO_MS   = 300;   // recordings shorter than this are discarded
 
   var phase = 'idle'; // idle | recording | processing
+  // ── C-class config ─────────────────────────────────────────
+  // UX / timing constants resolved from URL → localStorage → default.
+  var PARAM_DESCRIPTORS = {
+    contextPollMs:   { default: 5000, min: 500,  max: 60000 },
+    statusHideMs:    { default: 2000, min: 100,  max: 30000 },
+    entitySlice:     { default: 6,    min: 1,    max: 100   },
+    taskPillSlice:   { default: 4,    min: 1,    max: 100   },
+    taskListSlice:   { default: 6,    min: 1,    max: 100   },
+    localMsgCap:     { default: 40,   min: 1,    max: 1000  },
+    postEmitDelayMs: { default: 600,  min: 100,  max: 30000 },
+  };
+
+  var C_CONFIG = {};
+
+  function resolveConfig() {
+    var cfg = {};
+    var params;
+    try { params = new URLSearchParams(window.location.search); } catch (e) { params = { get: function() { return null; } }; }
+    Object.keys(PARAM_DESCRIPTORS).forEach(function (name) {
+      var desc = PARAM_DESCRIPTORS[name];
+      var val = desc.default;
+
+      // 1. URL query param
+      var urlVal = params.get(name);
+      if (urlVal !== null) {
+        var n = parseInt(urlVal, 10);
+        if (!isNaN(n)) val = n;
+      } else {
+        // 2. localStorage (voci_c_ prefix)
+        var lsVal = localStorage.getItem('voci_c_' + name);
+        if (lsVal !== null) {
+          var nls = parseInt(lsVal, 10);
+          if (!isNaN(nls)) val = nls;
+        }
+      }
+
+      // Clamp to [min, max]
+      if (val < desc.min) val = desc.min;
+      if (desc.max && val > desc.max) val = desc.max;
+
+      cfg[name] = val;
+    });
+    return cfg;
+  }
+
+  var pollIntervalId = null;
+
+  function restartPolling() {
+    if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null; }
+    if (pollingStarted) pollIntervalId = setInterval(refreshContext, C_CONFIG.contextPollMs);
+  }
+
   var isRecording = false;
   var chunks = [], recorder = null, mediaStream = null;
   var timerSecs = 0, timerInterval = null;
@@ -194,7 +247,7 @@ import DOMPurify from 'dompurify';
     statusTimeout = setTimeout(function () {
       statusEl.style.display = 'none';
       statusTimeout = null;
-    }, 2000);
+    }, C_CONFIG.statusHideMs);
   }
 
   function updateClearBtn() {
@@ -237,7 +290,7 @@ import DOMPurify from 'dompurify';
 
     entitiesCount.textContent = eLines.length + ' entities';
 
-    entitiesList.innerHTML = eLines.slice(0, 6).map(function (line) {
+    entitiesList.innerHTML = eLines.slice(0, C_CONFIG.entitySlice).map(function (line) {
       var m = line.match(/"([^"]+)"\s*[-→>]+\s*(.+)/);
       if (m) {
         return '<div style="display:flex;align-items:baseline;gap:4px">' +
@@ -249,7 +302,7 @@ import DOMPurify from 'dompurify';
       return '<div style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080">' + esc(line) + '</div>';
     }).join('');
 
-    var newPillsHtml = tLines.slice(0, 4).map(function (line, i) {
+    var newPillsHtml = tLines.slice(0, C_CONFIG.taskPillSlice).map(function (line, i) {
       var m = line.match(/TASK-\d+/i);
       var id = m ? m[0].toUpperCase() : 'T' + (i + 1);
       var c  = TASK_COLORS[i % TASK_COLORS.length];
@@ -260,7 +313,7 @@ import DOMPurify from 'dompurify';
     }).join('<span style="color:#283848;font-size:9px">·</span>');
     if (newPillsHtml !== lastPillsHtml) { lastPillsHtml = newPillsHtml; taskPills.innerHTML = newPillsHtml; }
 
-    tasksList.innerHTML = tLines.slice(0, 6).map(function (line, i) {
+    tasksList.innerHTML = tLines.slice(0, C_CONFIG.taskListSlice).map(function (line, i) {
       var m = line.match(/TASK-\d+/i);
       var id   = m ? m[0].toUpperCase() : 'T' + (i + 1);
       var c    = TASK_COLORS[i % TASK_COLORS.length];
@@ -485,7 +538,7 @@ import DOMPurify from 'dompurify';
       if (r.ok || r.status === 204) {
         localMessages.push({ role: 'user',      text: text,    time: time, events: [] });
         localMessages.push({ role: 'assistant', text: 'On it.', time: time, events: [] });
-        if (localMessages.length > 40) localMessages.splice(0, localMessages.length - 40);
+        if (localMessages.length > C_CONFIG.localMsgCap) localMessages.splice(0, localMessages.length - C_CONFIG.localMsgCap);
         composeEl.value = '';
         updateSendBtn();
         updateClearBtn();
@@ -493,7 +546,7 @@ import DOMPurify from 'dompurify';
         // Re-render immediately with current hint so local messages appear at once,
         // without waiting for a hint change on the next /api/context poll.
         renderContext(lastHint || '');
-        setTimeout(refreshContext, 600);
+        setTimeout(refreshContext, C_CONFIG.postEmitDelayMs);
       }
     }).catch(function (e) { console.error('emit:', e); setPhase('idle'); });
   }
@@ -580,10 +633,130 @@ import DOMPurify from 'dompurify';
     getVadConfig: function () {
       return { vadThreshold: VAD_THRESHOLD, minAudioMs: MIN_AUDIO_MS };
     },
+    // Current C-class resolved config (URL → localStorage → default hierarchy).
+    // Used by E2E tests to verify resolution logic.
+    getCConfig: function () {
+      var copy = {};
+      Object.keys(C_CONFIG).forEach(function (k) { copy[k] = C_CONFIG[k]; });
+      return copy;
+    },
   };
+
+  // ── C-class settings panel ────────────────────────────────
+
+  function populateSettingsPanel() {
+    var panel = $('voci-csettings');
+    if (!panel) return;
+    Object.keys(PARAM_DESCRIPTORS).forEach(function (name) {
+      var inp = panel.querySelector('input[name="' + name + '"]');
+      if (inp) inp.value = String(C_CONFIG[name]);
+    });
+  }
+
+  function hideSettings() {
+    var panel = $('voci-csettings');
+    if (panel) panel.style.display = 'none';
+  }
+
+  function toggleSettings() {
+    var panel = $('voci-csettings');
+    if (!panel) return;
+    if (panel.style.display === 'flex') {
+      hideSettings();
+    } else {
+      populateSettingsPanel();
+      panel.style.display = 'flex';
+    }
+  }
+
+  function buildSettingsPanel() {
+    // Gear button in status bar (next to refresh button).
+    var statusRight = document.querySelector('#voci-root > div:first-child > div:last-child');
+    if (statusRight) {
+      var gearBtn = document.createElement('button');
+      gearBtn.id = 'csettings-gear';
+      gearBtn.innerHTML = '&#x2699;';
+      gearBtn.title = 'C-class config';
+      gearBtn.style.cssText = 'font-size:11px;color:#4a6080;background:none;border:none;cursor:pointer;padding:0 1px;line-height:1;font-family:inherit;';
+      gearBtn.addEventListener('click', toggleSettings);
+      statusRight.insertBefore(gearBtn, statusRight.firstChild);
+    }
+
+    // Settings panel overlay (hidden by default).
+    var fields = Object.keys(PARAM_DESCRIPTORS).map(function (name) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;">' +
+        '<label style="font-size:10px;color:#4a6080;font-family:JetBrains Mono,monospace;">' + name + '</label>' +
+        '<input name="' + name + '" type="number" min="' + PARAM_DESCRIPTORS[name].min + '" style="width:80px;background:#07090d;border:1px solid #131c2e;border-radius:4px;padding:3px 5px;font-size:10px;color:#c8d4e8;font-family:JetBrains Mono,monospace;text-align:right;" />' +
+        '</div>';
+    }).join('');
+
+    var panel = document.createElement('div');
+    panel.id = 'voci-csettings';
+    panel.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(7,9,13,0.97);z-index:101;flex-direction:column;align-items:center;justify-content:center;';
+    panel.innerHTML = '<div style="background:#0b0e1a;border:1px solid #131c2e;border-radius:12px;padding:20px 24px;max-width:340px;width:90%;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
+      '<span style="font-size:12px;font-weight:600;color:#e4eaf5;letter-spacing:0.04em;">C-class config</span>' +
+      '<button id="voci-csettings-close" style="color:#4a6080;font-size:16px;cursor:pointer;background:none;border:none;padding:0;line-height:1;">&#x2715;</button>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:7px;margin-bottom:14px;">' + fields + '</div>' +
+      '<div style="display:flex;gap:8px;">' +
+      '<button id="voci-csettings-save" style="flex:1;padding:6px;border-radius:6px;background:#0e1e32;border:1px solid #1a3050;color:#5b9cf6;font-size:11px;cursor:pointer;font-family:Space Grotesk,sans-serif;">Save</button>' +
+      '<button id="voci-csettings-reset" style="flex:1;padding:6px;border-radius:6px;background:none;border:1px solid #131c2e;color:#4a6080;font-size:11px;cursor:pointer;font-family:Space Grotesk,sans-serif;">Reset</button>' +
+      '</div></div>';
+    document.body.appendChild(panel);
+
+    // Close button
+    $('voci-csettings-close').addEventListener('click', hideSettings);
+
+    // Save: write each field to localStorage and re-resolve config.
+    $('voci-csettings-save').addEventListener('click', function () {
+      Object.keys(PARAM_DESCRIPTORS).forEach(function (name) {
+        var inp = panel.querySelector('input[name="' + name + '"]');
+        if (inp) {
+          var v = parseInt(inp.value, 10);
+          if (!isNaN(v)) {
+            var desc = PARAM_DESCRIPTORS[name];
+            if (v < desc.min) v = desc.min;
+            if (desc.max && v > desc.max) v = desc.max;
+            localStorage.setItem('voci_c_' + name, String(v));
+          }
+        }
+      });
+      C_CONFIG = resolveConfig();
+      populateSettingsPanel();
+      restartPolling();
+    });
+
+    // Reset: remove all voci_c_ keys and re-resolve to defaults.
+    $('voci-csettings-reset').addEventListener('click', function () {
+      Object.keys(PARAM_DESCRIPTORS).forEach(function (name) {
+        localStorage.removeItem('voci_c_' + name);
+      });
+      C_CONFIG = resolveConfig();
+      populateSettingsPanel();
+      restartPolling();
+    });
+  }
+
+  // Keyboard shortcuts: '?' toggles settings, Escape closes it.
+  window.addEventListener('keydown', function (e) {
+    if (e.key === '?' && e.target !== composeEl) {
+      e.preventDefault();
+      toggleSettings();
+      return;
+    }
+    if (e.key === 'Escape') {
+      var panel = $('voci-csettings');
+      if (panel && panel.style.display === 'flex') {
+        hideSettings();
+      }
+    }
+  });
 
   // ── Init ─────────────────────────────────────────────────
 
+  C_CONFIG = resolveConfig();
+  buildSettingsPanel();
   setPhase('idle');
   updateSendBtn();
   updateClearBtn();

@@ -9,3 +9,5 @@ docs/**/*.pyc
 .claude/review/
 backlog/.caps/
 backlog/tasks/.scanner.lock
+internal/daemon/web/recorder.bundle.js
+node_modules/

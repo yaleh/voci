@@ -1,0 +1,12 @@
+{
+  "name": "voci",
+  "private": true,
+  "devDependencies": {
+    "esbuild": "^0.25.5",
+    "marked": "^15.0.12",
+    "dompurify": "^3.2.6"
+  },
+  "scripts": {
+    "build": "esbuild internal/daemon/web/recorder.src.js --bundle --format=iife --platform=browser --outfile=internal/daemon/web/recorder.bundle.js"
+  }
+}

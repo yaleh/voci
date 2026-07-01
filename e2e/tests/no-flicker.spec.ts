@@ -70,8 +70,8 @@ test.describe('No-flicker: dialogue feed does not mutate on unchanged messages',
 });
 
 test.describe('No-flicker: context panel sections use dedup guards', () => {
-  test('recorder.js contains lastDialogueHtml dedup variable', async ({ page }) => {
-    const response = await page.request.get('/recorder.js');
+  test('recorder.bundle.js contains lastDialogueHtml dedup variable', async ({ page }) => {
+    const response = await page.request.get('/recorder.bundle.js');
     expect(response.status()).toBe(200);
     const body = await response.text();
     expect(body).toContain('lastDialogueHtml');

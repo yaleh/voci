@@ -10,7 +10,7 @@ build: build-web
 build-web:
 	npm ci && npm run build
 
-install:
+install: build-web
 	go install $(GOFLAGS) $(CMD)
 
 test:

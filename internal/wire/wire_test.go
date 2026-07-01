@@ -302,6 +302,45 @@ func TestDispatch_LeadingFlagFallsBackToLegacy(t *testing.T) {
 	}
 }
 
+func TestListenPreflightDispatch(t *testing.T) {
+	dir := t.TempDir()
+	// No lock files, no stop sentinel → coldstart path.
+	var stdout bytes.Buffer
+	err := dispatch(
+		[]string{"listen-preflight", "--lock-dir=" + dir},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	line := strings.TrimSpace(stdout.String())
+	if !strings.HasPrefix(line, "coldstart ") {
+		t.Errorf("expected output to start with 'coldstart ', got: %q", line)
+	}
+}
+
+func TestListenPreflightDispatch_Stopped(t *testing.T) {
+	dir := t.TempDir()
+	// Create stop sentinel.
+	if err := os.WriteFile(dir+"/.listen-stop", []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	err := dispatch(
+		[]string{"listen-preflight", "--lock-dir=" + dir},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	line := strings.TrimSpace(stdout.String())
+	if line != "stopped" {
+		t.Errorf("expected 'stopped', got: %q", line)
+	}
+}
+
 func TestDispatch_UnknownSubcommandErrors(t *testing.T) {
 	var stdout bytes.Buffer
 	err := dispatch(
@@ -312,7 +351,7 @@ func TestDispatch_UnknownSubcommandErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown subcommand")
 	}
-	for _, word := range []string{"serve", "once"} {
+	for _, word := range []string{"serve", "once", "listen-preflight"} {
 		if !strings.Contains(err.Error(), word) {
 			t.Errorf("expected error to mention %q, got: %v", word, err)
 		}

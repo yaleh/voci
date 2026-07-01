@@ -23,7 +23,9 @@ func ResolveSessionID(startPID int, read ProcAncestryReader) (string, bool) {
 			return "", false
 		}
 		if comm == "claude" {
-			return strconv.Itoa(ppid), true
+			// pid itself is the claude process; return its PID (not ppid) so the
+			// session identity is unique per Claude Code session.
+			return strconv.Itoa(pid), true
 		}
 		pid = ppid
 	}

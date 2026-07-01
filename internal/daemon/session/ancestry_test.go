@@ -34,8 +34,10 @@ func TestResolveSessionIDFindsClaude(t *testing.T) {
 	if !ok {
 		t.Fatal("expected to find claude ancestor")
 	}
-	if sid != "80" {
-		t.Errorf("expected session ID '80', got %q", sid)
+	// PID 90 is the claude process (comm=="claude"); the session ID must be its
+	// own PID, not its parent (80), so the identity is unique per claude session.
+	if sid != "90" {
+		t.Errorf("expected session ID '90' (the claude PID), got %q", sid)
 	}
 }
 
@@ -139,10 +141,10 @@ func TestSessionIDOrFallback_FindsClaude(t *testing.T) {
 		80:          {2, "init"},
 	})
 	sid := SessionIDOrFallback(fake)
-	// ResolveSessionID chains: os.Getpid()→100(bash) then 100→80(claude)
-	// → returns ppid of comm=="claude", which is 80.
-	if sid != "80" {
-		t.Errorf("expected session ID '80' from fake claude ancestor, got %q", sid)
+	// ResolveSessionID chains: os.Getpid()→100(bash) then reads 100→(80,"claude").
+	// PID 100 is the claude process, so the session ID is its own PID, 100.
+	if sid != "100" {
+		t.Errorf("expected session ID '100' (the claude PID) from fake claude ancestor, got %q", sid)
 	}
 }
 

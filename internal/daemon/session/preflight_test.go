@@ -48,8 +48,8 @@ func TestPreflightColdstart(t *testing.T) {
 	if res.Decision != "coldstart" {
 		t.Errorf("expected Decision='coldstart', got %q", res.Decision)
 	}
-	if res.SessionID != "80" {
-		t.Errorf("expected SessionID='80' (claude PID), got %q", res.SessionID)
+	if res.SessionID != "100" {
+		t.Errorf("expected SessionID='100' (the claude PID), got %q", res.SessionID)
 	}
 }
 
@@ -59,7 +59,9 @@ func TestPreflightReconnect(t *testing.T) {
 	// The lock PID must be in the fake ancestry chain AND be alive,
 	// otherwise SweepOrphanLocks will remove it.
 	pid := os.Getpid()
-	sid := "80"
+	// The fake chain below resolves the claude ancestor PID to 100, so the lock
+	// must be keyed by "100" for Preflight to find it and choose reconnect.
+	sid := "100"
 	if err := WriteLock(dir, sid, pid, 9474); err != nil {
 		t.Fatal(err)
 	}
@@ -87,8 +89,8 @@ func TestPreflightReconnect(t *testing.T) {
 	if res.Decision != "reconnect" {
 		t.Fatalf("expected Decision='reconnect', got %q", res.Decision)
 	}
-	if res.SessionID != "80" {
-		t.Errorf("expected SessionID='80', got %q", res.SessionID)
+	if res.SessionID != "100" {
+		t.Errorf("expected SessionID='100', got %q", res.SessionID)
 	}
 	if res.LocalURL != "http://127.0.0.1:9474" {
 		t.Errorf("expected LocalURL='http://127.0.0.1:9474', got %q", res.LocalURL)

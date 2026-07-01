@@ -1,7 +1,7 @@
 ---
 name: voci-listen
 description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir, removes it on exit, and emits a startup JSON event (type=startup) to stdout for Monitor display — no separate background start or status poll needed. Monitor command is a bare voci serve with no shell pipeline. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on startup event arrival display URL/token to user; on voice event extract 'rewritten' and execute inline. Stops when ~/.voci/.listen-stop sentinel is present."
-allowed-tools: Bash, Read, Monitor, TaskList, TaskStop, TaskOutput
+allowed-tools: Bash, Read, Monitor, TaskStop
 contracts:
   - grep: "Monitor(persistent=true"
     target: self
@@ -21,17 +21,23 @@ contracts:
     target: self
   - grep: "TaskStop"
     target: self
-  - grep: "TaskOutput"
+  - grep: "listen-preflight"
+    target: self
+  - grep: ".status"
+    target: self
+  - grep: "StartupEvent"
+    target: self
+  - not-grep: "\\.task\\b"
+    target: self
+  - not-grep: "TaskOutput"
+    target: self
+  - not-grep: "TaskList"
     target: self
   - not-grep: "re-invoke"
     target: self
   - not-grep: "2>\x2fdev\x2fstdout"
     target: self
   - not-grep: "\x7c grep --line-buffered"
-    target: self
-  - grep: ".status"
-    target: self
-  - grep: "StartupEvent"
     target: self
 ---
 
@@ -46,15 +52,11 @@ exists       :: Path → Bool
 
 -- Business logic signatures
 listenLoop        :: () → Outcome          -- entry point
-stopStaleMon      :: () → ()               -- stop orphaned Monitor tasks + sweep stale lock files
-manageLock        :: () → SESSION_ID       -- cold-start: generate UUID for session, no background start
-reconnectGuard    :: () → (Bool, SESSION_ID, PORT) -- true if a live Monitor task + lock exists
 stopSentinel      :: () → Bool             -- true when ~/.voci/.listen-stop exists
 classifyEvent     :: Line → EventKind      -- distinguish voice events from startup info lines
 extractInstruction :: Line → String        -- parse JSON, return Rewritten field; raw fallback
 cleanupLock       :: SESSION_ID → ()       -- remove ~/.voci/<SESSION_ID>.lock on shutdown
-ensureMonitor     :: SESSION_ID → ()           -- idempotent Monitor arm: TaskList check before Monitor call
-coldStart         :: () → Outcome              -- explicit invocation entry: full bootstrap → ensureMonitor
+coldStart         :: () → Outcome              -- explicit invocation entry: 1 Bash + 1 Monitor
 onMonitorEvent    :: Line → Outcome            -- Monitor-event entry: classify → display or execute; no bootstrap
 
 data Outcome   = Listening | Stopped
@@ -65,8 +67,7 @@ data EventKind = VoiceEvent String         -- JSON line with Rewritten field →
 -- Entry Point Guard: Cold-start vs. Monitor-event dispatch
 --
 -- Cold-start (explicit /voci-listen invocation → λ() → coldStart()):
---   Executes full bootstrap: stopStaleMon → checkStopSentinel
---   → manageLock (generate SESSION_ID) → ensureMonitor(SESSION_ID).
+--   Executes 1 Bash to run listen-preflight, then 1 Monitor if coldstart.
 --
 -- Monitor-event dispatch (Monitor fires in any session → onMonitorEvent(line)):
 --   The Monitor description carries full dispatch instructions; the fresh session
@@ -76,30 +77,42 @@ data EventKind = VoiceEvent String         -- JSON line with Rewritten field →
 listenLoop() = coldStart()
 
 coldStart() = {
-  -- Explicit /voci-listen invocation path. Full bootstrap sequence.
-  _: stopStaleMon(),    -- stop orphaned Monitor tasks AND sweep stale .lock files
+  -- Step 1: Stop any stale voci listen Monitor tasks via TaskStop.
+  -- Stop any known stale Monitor task IDs from previous runs.
+  -- If no known task IDs: skip.
 
-  if (stopSentinel()):
-    return: Stopped,
+  -- Step 2: Run listen-preflight as a single Bash call.
+  -- Output is a single line: "stopped", "coldstart <cc_pid>", or "reconnect <local> <share> <token>".
+  PREFLIGHT = Bash("voci listen-preflight --lock-dir ~/.voci")
+  LINE = first line of PREFLIGHT output
 
-  -- reconnectGuard: detect existing live lock to avoid cold-starting when a
-  -- voci serve process is still running.
-  (live, SESSION_ID, PORT): reconnectGuard(),
-  if (live):
-    ensureMonitor(SESSION_ID),
-    return: Listening,
+  -- Step 3: Dispatch on output.
+  switch (first word of LINE):
+    case "stopped":
+      return: Stopped
 
-  -- Cold-start: generate a session ID; voci serve handles port assignment
-  -- (--serve-port 0), lock writing (--lock-dir), and lock cleanup (on exit).
-  SESSION_ID: manageLock(),
-  ensureMonitor(SESSION_ID),
-  return: Listening,
+    case "reconnect":
+      -- LINE = "reconnect <local> <share> <token>"
+      parse: _, LOCAL_URL, SHARE_URL, TOKEN = split(LINE)
+      display reconnect info to user: local URL, share URL, token
+      return: Listening
+
+    case "coldstart":
+      -- LINE = "coldstart <cc_pid>"
+      parse: _, SESSION_ID = split(LINE)
+
+      -- Arm Monitor. voci serve self-manages lock/status files with --lock-dir
+      -- and --session-id; lock and status files are the sole liveness sources.
+      Monitor(persistent=true,
+        command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id " + SESSION_ID,
+        description="voci-listen: event arrived — DO NOT call /voci-listen again. If JSON has type=='startup': extract local_url, share_url, bearer_token and display them to the user. Otherwise: parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction. If ~/.voci/.listen-stop exists, stop.")
+
+      return: Listening
 }
 
 onMonitorEvent(line) = {
   -- Monitor-event dispatch path. No bootstrap, no restart.
   if (stopSentinel()):
-    cleanupLock(SESSION_ID),
     return: Stopped,
   kind: classifyEvent(line),
   | StartupEvent line → displayStartup(line),   -- parse local_url, share_url, bearer_token; show to user
@@ -107,104 +120,9 @@ onMonitorEvent(line) = {
   return: Listening,
 }
 
-ensureMonitor(SESSION_ID) = {
-  -- PRIMARY idempotency check via .task files + TaskOutput (reliable).
-  -- TaskList is unreliable for persistent Monitors; .task files are ground truth.
-  -- Step 1: Read ~/.voci/*.task to get known Monitor task IDs.
-  -- Step 2: For each task ID call TaskOutput(task_id, block=false).
-  -- Step 3: If any returns status=="running" → live Monitor exists, skip arm.
-  for task_file in ~/.voci/*.task:
-    task_id = read(task_file)
-    result  = TaskOutput(task_id, block=false)
-    if result.status == "running":
-      echo "[voci-listen] ensureMonitor: live Monitor " + task_id + " — skipping arm"
-      return: ()
-
-  -- SECONDARY: also try TaskList as best-effort fallback.
-  tasks: TaskList()
-  if (any task in tasks where "voci-listen" in task.description):
-    echo "[voci-listen] ensureMonitor: TaskList found live Monitor — skipping arm"
-    return: ()
-
-  -- No live Monitor found: arm a new persistent Monitor.
-  -- --serve-port 0: OS assigns port; --lock-dir/--session-id: binary self-manages lock.
-  -- The command is a bare voci serve — no shell pipeline, no grep wrapper.
-  -- Startup metadata (local URL, share URL, Bearer token) arrives as a startup JSON event
-  -- on stdout via the Monitor; onMonitorEvent displays it. No separate poll needed.
-  -- JSON event lines (containing "rewritten") arrive on stdout → voice instruction to execute.
-  -- After arming, write the task ID to ~/.voci/$SESSION_ID.task for future
-  -- reconnect detection (TaskList is unreliable for persistent Monitors).
-  -- On wake-up: onMonitorEvent classifies and dispatches directly. No skill restart.
-  TASK_ID = Monitor(persistent=true,
-    command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID",
-    description="voci-listen: event arrived — DO NOT call /voci-listen again. If JSON has type=='startup': extract local_url, share_url, bearer_token and display them to the user. Otherwise: parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction. If ~/.voci/.listen-stop exists, stop.")
-  -- extract task ID from Monitor result (e.g. "Monitor started (task bwiijfk3w, …)")
-  -- write it: echo $TASK_ID > ~/.voci/$SESSION_ID.task
-  WriteMonitorTaskID(~/.voci, SESSION_ID, TASK_ID)
-}
-
-stopStaleMon() = {
-  -- PRIMARY: read ~/.voci/*.task files to find known Monitor task IDs (reliable).
-  -- Step 1: Read each .task file, call TaskStop on the task ID, remove the file.
-  for task_file in ~/.voci/*.task:
-    task_id = read(task_file)
-    echo "[voci-listen] stopStaleMon: stopping Monitor " + task_id + " from " + task_file
-    TaskStop(task_id)          -- harness tool call, not a shell command
-    rm(task_file)
-
-  -- SECONDARY: also try TaskList as best-effort catch-all for tasks without .task files.
-  tasks = TaskList()
-  for task in tasks:
-    if "voci-listen" in task.description:
-      echo "[voci-listen] stopStaleMon: stopping stale Monitor " + task.id + " (via TaskList)"
-      TaskStop(task.id)
-
-  -- The voci binary sweeps stale .lock files automatically via SweepStaleLocks
-  -- when --lock-dir is passed; no separate bash sweep is needed here.
-}
-
-manageLock() = {
-  -- Generate SESSION_ID (32-char hex via uuidgen or /proc/sys/kernel/random/uuid).
-  -- No background voci serve start — the Monitor command owns the process.
-  -- voci serve --lock-dir ~/.voci --session-id $SESSION_ID writes the lock itself
-  -- in its OnListening callback and removes it on exit via defer.
-  -- Return SESSION_ID.
-}
-
-reconnectGuard() = {
-  -- PRIMARY: use .lock + .task files + TaskOutput for reliable liveness detection.
-  -- TaskList is NOT used here because it fails to enumerate persistent Monitors.
-  --
-  -- Step 1: Sweep orphaned .task files (no corresponding .lock → process already gone).
-  SweepStaleTaskFiles(~/.voci)   -- rm .task files whose .lock is absent
-  --
-  -- Step 2: For each ~/.voci/*.lock, check if the corresponding .task file exists
-  --         and whether TaskOutput confirms the Monitor is still running.
-  for lock_file in ~/.voci/*.lock:
-    entry      = ReadLock(lock_file)         -- {session_id, pid, port}
-    task_id    = ReadMonitorTaskID(~/.voci, entry.session_id)  -- may be absent
-    if task_id != "":
-      result = TaskOutput(task_id, block=false)
-      if result.status == "running":
-        echo "[voci-listen] reconnectGuard: live Monitor " + task_id + " session=" + entry.session_id
-        return (live=true, SESSION_ID=entry.session_id, PORT=entry.port)
-  --
-  -- Step 3: No live Monitor found via .task files. Try TaskList as fallback.
-  tasks = TaskList()
-  for task in tasks:
-    if "voci-listen" in task.description and task.status == "running":
-      for lock_file in ~/.voci/*.lock:
-        entry = ReadLock(lock_file)
-        echo "[voci-listen] reconnectGuard: TaskList found live Monitor, reusing session=" + entry.session_id
-        return (live=true, SESSION_ID=entry.session_id, PORT=entry.port)
-  --
-  echo "[voci-listen] reconnectGuard: no live session found — proceeding with cold-start"
-  return (live=false, "", 0)
-}
-
-cleanupLock(SESSION_ID) = {
-  -- rm -f ~/.voci/$SESSION_ID.lock
-  -- rm -f ~/.voci/$SESSION_ID.task
+stopSentinel() = {
+  STOP_FILE = "~/.voci/.listen-stop"
+  return exists(STOP_FILE)
 }
 
 classifyEvent :: Line → EventKind
@@ -219,137 +137,60 @@ extractInstruction(line) =
 
 ## Implementation
 
-### stopStaleMon
-
-`TaskList` is unreliable for persistent Monitors — use `.task` files as the primary source.
+### coldStart (1 Bash + 1 Monitor)
 
 ```bash
-# Step 1: Stop all Monitors recorded in .task files (primary, reliable).
-for f in ~/.voci/*.task; do
-  [ -f "$f" ] || continue
-  TASK_ID=$(cat "$f")
-  echo "[voci-listen] stopStaleMon: stopping Monitor $TASK_ID (from $f)"
-  # Call TaskStop harness tool with TASK_ID — NOT a bash kill command.
-  TaskStop("$TASK_ID")
-  rm -f "$f"
-done
+# Step 1: Stop stale Monitor tasks (best-effort).
+# If we have a known task ID from a prior run, stop it.
+# Track stale Monitor task IDs via variable — no persistent file needed.
 
-# Step 2: TaskList as best-effort catch-all for tasks without .task files.
-# Pseudocode (harness tool call):
-tasks = TaskList()
-for task in tasks:
-  if "voci-listen" in task.description:
-    echo "[voci-listen] stopStaleMon: stopping stale Monitor " + task.id + " (via TaskList)"
-    TaskStop(task.id)
-```
+# Step 2: Run listen-preflight — all lock sweeps, stop-sentinel check,
+# ancestry resolution, and reconnect logic in one call.
+PREFLIGHT=$(voci listen-preflight --lock-dir ~/.voci)
+echo "[voci-listen] preflight: $PREFLIGHT"
 
-The voci binary handles stale `.lock` cleanup automatically via `SweepStaleLocks`
-when `--lock-dir` is passed; no separate bash sweep needed here.
-
-### stopSentinel check
-
-```bash
-STOP_FILE="${HOME}/.voci/.listen-stop"
-if [ -f "$STOP_FILE" ]; then
-  echo "[voci-listen] stop sentinel found — exiting."
-  exit 0
-fi
-```
-
-### manageLock (cold-start)
-
-Generate a session ID only. The Monitor command is responsible for starting `voci serve`
-with `--lock-dir` and `--session-id`; the binary writes the lock file itself.
-
-```bash
-VOCI_DIR="${HOME}/.voci"
-mkdir -p "$VOCI_DIR"
-
-SESSION_ID=$(uuidgen || cat /proc/sys/kernel/random/uuid)
-echo "[voci-listen] manageLock: session=$SESSION_ID"
-# No background voci serve start; the Monitor command below owns the process.
-```
-
-### reconnectGuard
-
-`TaskList` cannot reliably enumerate persistent Monitors. Use `.lock` + `.task` files +
-`TaskOutput` as the primary liveness check:
-
-```bash
-# Step 1: Sweep orphaned .task files (lock gone → process already exited).
-for f in ~/.voci/*.task; do
-  [ -f "$f" ] || continue
-  BASE="${f%.task}"
-  [ -f "${BASE}.lock" ] || rm -f "$f"
-done
-
-# Step 2: For each live .lock, verify Monitor via .task + TaskOutput (harness tool).
-for lock_file in ~/.voci/*.lock; do
-  [ -f "$lock_file" ] || continue
-  SESSION_ID=$(python3 -c "import sys,json; d=json.load(open('$lock_file')); print(d['session_id'])")
-  PORT=$(python3 -c "import sys,json; d=json.load(open('$lock_file')); print(d['port'])")
-  TASK_FILE="${HOME}/.voci/${SESSION_ID}.task"
-  if [ -f "$TASK_FILE" ]; then
-    TASK_ID=$(cat "$TASK_FILE")
-    # Harness tool call (not bash): TaskOutput(TASK_ID, block=false)
-    result = TaskOutput(TASK_ID, block=false)
-    if result.status == "running":
-      echo "[voci-listen] reconnectGuard: live Monitor $TASK_ID session=$SESSION_ID port=$PORT"
-      return (live=true, SESSION_ID, PORT)
-  fi
-done
-
-# Step 3: Fallback — TaskList (may miss persistent Monitors, but harmless to try).
-tasks = TaskList()
-for task in tasks:
-  if "voci-listen" in task.description and task.status == "running":
-    for lock_file in ~/.voci/*.lock:
-      entry = ReadLock(lock_file)
-      echo "[voci-listen] reconnectGuard: TaskList found live Monitor, session=" + entry.session_id
-      return (live=true, entry.session_id, entry.port)
-
-echo "[voci-listen] reconnectGuard: no live session found — proceeding with cold-start"
-return (live=false, "", 0)
-```
-
-### ensureMonitor
-
-Called after `manageLock` or `reconnectGuard`. Idempotency check uses `.task` files +
-`TaskOutput` (primary) and `TaskList` (secondary fallback). After arming, writes the
-harness task ID to `~/.voci/$SESSION_ID.task` for future reconnect detection.
-
-```bash
-# PRIMARY idempotency check: .task files + TaskOutput (reliable).
-for f in ~/.voci/*.task; do
-  [ -f "$f" ] || continue
-  TASK_ID=$(cat "$f")
-  # Harness tool call: TaskOutput(TASK_ID, block=false)
-  result = TaskOutput(TASK_ID, block=false)
-  if result.status == "running":
-    echo "[voci-listen] ensureMonitor: live Monitor $TASK_ID — skipping arm"
+DECISION=$(echo "$PREFLIGHT" | awk '{print $1}')
+case "$DECISION" in
+  stopped)
+    echo "[voci-listen] stop sentinel found — exiting."
     return
-done
-
-# SECONDARY: TaskList best-effort fallback.
-tasks = TaskList()
-for task in tasks:
-  if "voci-listen" in task.description:
-    echo "[voci-listen] ensureMonitor: TaskList found live Monitor — skipping arm"
+    ;;
+  reconnect)
+    LOCAL_URL=$(echo "$PREFLIGHT" | awk '{print $2}')
+    SHARE_URL=$(echo "$PREFLIGHT" | awk '{print $3}')
+    TOKEN=$(echo "$PREFLIGHT" | awk '{print $4}')
+    echo "[voci-listen] reconnect: local=$LOCAL_URL share=$SHARE_URL token=$TOKEN"
     return
+    ;;
+  coldstart)
+    SESSION_ID=$(echo "$PREFLIGHT" | awk '{print $2}')
+    echo "[voci-listen] coldstart: session=$SESSION_ID"
+    ;;
+  *)
+    echo "[voci-listen] unexpected preflight output: $PREFLIGHT"
+    return
+    ;;
+esac
 
-# Arm new Monitor and save task ID.
-# The Monitor tool result contains the task ID, e.g.:
-#   "Monitor started (task bwiijfk3w, persistent …)"
-# Extract the task ID and write it to ~/.voci/$SESSION_ID.task.
+# Step 3: Arm the Monitor.
+# The binary writes ~/.voci/$SESSION_ID.lock (PID+port) in OnListening,
+# ~/.voci/$SESSION_ID.status (localURL+shareURL+token) at startup,
+# and removes both on clean exit.
+# Lock file and status file are the sole liveness sources.
 MONITOR_RESULT = Monitor(persistent=true,
   command="voci serve --share --serve-port 0 --lock-dir ~/.voci --session-id $SESSION_ID",
-  description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction."
+  description="voci-listen: voice event arrived — DO NOT call /voci-listen again. Parse the JSON line, extract the 'rewritten' field, execute it inline as the next instruction. If ~/.voci/.listen-stop exists, stop."
 )
-# Extract task ID from result string (pattern: "task <id>,")
-TASK_ID=$(echo "$MONITOR_RESULT" | python3 -c "import re,sys; m=re.search(r'task (\w+)', sys.stdin.read()); print(m.group(1) if m else '')")
-echo "$TASK_ID" > ~/.voci/${SESSION_ID}.task
-echo "[voci-listen] ensureMonitor: armed Monitor $TASK_ID, saved to ~/.voci/${SESSION_ID}.task"
+echo "[voci-listen] coldStart: armed Monitor for session=$SESSION_ID"
 ```
+
+`voci listen-preflight --lock-dir ~/.voci` consolidates:
+- `SweepStaleLocks` + `SweepStaleStatuses` (dead-PID cleanup)
+- `SweepOrphanLocks` (live-PID but no claude ancestor)
+- `.listen-stop` sentinel check
+- Session ID resolution via claude ancestry (cc-PID as ID)
+- Existing live-lock detection → reconnect with stored URLs/token
+- Fallback → coldstart with resolved or generated session ID
 
 `voci serve --share --serve-port 0` starts the HTTP listener on an OS-assigned port,
 launches a Cloudflare Quick Tunnel, and writes startup metadata to
@@ -413,9 +254,10 @@ On clean shutdown (stop sentinel reached):
 
 ```bash
 rm -f "${HOME}/.voci/${SESSION_ID}.lock"
-rm -f "${HOME}/.voci/${SESSION_ID}.task"
-echo "[voci-listen] cleanupLock: removed lock and task files for $SESSION_ID"
+echo "[voci-listen] cleanupLock: removed lock file for $SESSION_ID"
 ```
+
+Or simply let `voci serve` clean up its own lock on exit (via `defer RemoveLock` in wire.go).
 
 ## Shutdown
 
@@ -433,7 +275,7 @@ rm -f ~/.voci/.listen-stop
 ```
 
 The skill checks for `~/.voci/.listen-stop` in two places:
-1. At bootstrap (before arming Monitor) — returns `Stopped` immediately if present.
+1. At bootstrap (via `voci listen-preflight`) — returns `Stopped` immediately if present.
 2. After each Monitor wake-up (before executing the instruction) — stops cleanly mid-session.
    `cleanupLock` is called before exiting to remove the session's `.lock` file.
 

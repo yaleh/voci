@@ -88,8 +88,10 @@ func dispatch(
 		return fwd(append([]string{"--serve"}, rest...))
 	case "once":
 		return fwd(rest)
+	case "listen-preflight":
+		return fwd(append([]string{"--listen-preflight"}, rest...))
 	default:
-		return fmt.Errorf("unknown subcommand %q; use serve or once", sub)
+		return fmt.Errorf("unknown subcommand %q; use serve, once, or listen-preflight", sub)
 	}
 }
 
@@ -158,9 +160,35 @@ func run(
 	shareAuthFlag := fs.String("share-auth", "", "Bearer token for --share (auto-generated if empty)")
 	lockDirFlag := fs.String("lock-dir", "", "directory for per-session lock files (empty = no lock)")
 	sessionIDFlag := fs.String("session-id", "", "session ID for lock file (auto-generated if --lock-dir set and empty)")
+	listenPreflightFlag := fs.Bool("listen-preflight", false, "run voci-listen preflight checks")
 
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+
+	// --listen-preflight: pre-arm checks for voci-listen skill.
+	if *listenPreflightFlag {
+		lockDir := *lockDirFlag
+		if lockDir == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("listen-preflight: cannot determine home dir for lock-dir: %w", err)
+			}
+			lockDir = home + "/.voci"
+		}
+		res, err := session.Preflight(lockDir, os.Getpid(), session.ProcAncestry)
+		if err != nil {
+			return fmt.Errorf("listen-preflight: %w", err)
+		}
+		switch res.Decision {
+		case "stopped":
+			fmt.Fprintln(stdout, "stopped")
+		case "reconnect":
+			fmt.Fprintf(stdout, "reconnect %s %s %s\n", res.LocalURL, res.ShareURL, res.Token)
+		case "coldstart":
+			fmt.Fprintf(stdout, "coldstart %s\n", res.SessionID)
+		}
+		return nil
 	}
 
 	// buildHint uses the injected BuildHintFn if provided, otherwise falls back to BuildContext.

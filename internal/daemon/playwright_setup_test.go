@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/pipeline"
 )
 

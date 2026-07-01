@@ -1,14 +1,14 @@
 ---
 id: TASK-70
 title: P1 改进：过滤 SessionSource 中的系统注入 turn
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-30 23:18'
-updated_date: '2026-06-30 23:27'
+updated_date: '2026-06-30 23:56'
 labels:
   - 'kind:basic'
 dependencies: []
-ordinal: 43000
+ordinal: 1000
 ---
 
 ## Description
@@ -207,4 +207,6 @@ premise-ledger:
 [H] Fixture JSONL format matches actual Claude Code JSONL schema seen in docs/research/gcl-events.jsonl
 [H] Backward compat claim is sound: Go zero-values bool=false and string="" so existing entries unaffected
 GCL-self-report: E=4 C=7 H=3
+
+claimed: 2026-06-30T23:54:19Z
 <!-- SECTION:NOTES:END -->

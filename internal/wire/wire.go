@@ -49,8 +49,11 @@ func Run(args []string) int {
 		}
 		return vocicontext.BuildContextWithSource(root, src, nil)
 	})
+	// Create the production injector here (not in run()) so tests can
+	// pass their own injectFn without triggering real tmux send-keys.
+	defaultInjectFn := inject.NewDefaultInjector(target).Inject
 	if err := dispatch(args[1:], os.Stdout, os.Stdin,
-		nil, nil, nil, nil, buildHintFn, ccAdapter.Deliver, nil, nil,
+		nil, nil, nil, defaultInjectFn, buildHintFn, ccAdapter.Deliver, nil, nil,
 	); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -148,7 +151,6 @@ func run(
 
 	fileFlag := fs.String("file", "", "path to audio WAV file (required)")
 	iterateFlag := fs.Bool("iterate", false, "enter iterative feedback loop after initial output")
-	tmuxTargetFlag := fs.String("tmux-target", "", "tmux pane target (e.g. session:window.pane)")
 	serveFlag := fs.Bool("serve", false, "run as Monitor-host server; writes event lines to stdout")
 	servePortFlag := fs.Int("serve-port", 9474, "port for serve HTTP server (used with --serve)")
 	serveHostFlag := fs.String("serve-host", "127.0.0.1", "bind host for serve HTTP server (use 0.0.0.0 for LAN access)")
@@ -399,14 +401,6 @@ func run(
 	}
 	if rewriteFnOpt == nil {
 		rewriteFnOpt = pipeline.Rewrite
-	}
-	if injectFn == nil {
-		target := *tmuxTargetFlag
-		if target == "" {
-			target = os.Getenv("TMUX_PANE")
-		}
-		inj := inject.NewDefaultInjector(target)
-		injectFn = inj.Inject
 	}
 
 	// Stage 2: ASR transcription

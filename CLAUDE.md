@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 make build          # builds ./voci binary in repo root
 make install        # go install → ~/go/bin/voci  (standard install target)
 make test           # go test ./...
+make e2e            # Playwright E2E 套件（需要 voci binary + Chromium）
 make clean          # removes ./voci binary
 
 # Run a single test
@@ -17,6 +18,23 @@ go test ./internal/asr/... -run TestTranscribeGemini
 ```
 
 The binary entry point is `cmd/voci/main.go` (3 lines); all logic lives in `internal/wire/wire.go`.
+
+## E2E Tests (Playwright)
+
+E2E 测试套件位于 `e2e/` 目录，基于 Playwright Test。独立于 `go test ./...`，
+通过 `make e2e` 触发。
+
+覆盖范围：
+- Bearer token 认证 overlay
+- PTT 录音交互
+- Voice append / emit contract
+- 移动端视口（iPhone 14 / Pixel 5）
+- 无闪烁（no-flicker）边界
+
+```bash
+make e2e           # 完整套件（需要 voci binary + Chromium）
+cd e2e && npx playwright test --reporter=list  # 直接运行
+```
 
 ## Configuration
 

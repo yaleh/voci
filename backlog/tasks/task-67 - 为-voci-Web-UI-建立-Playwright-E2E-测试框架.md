@@ -1,10 +1,10 @@
 ---
 id: TASK-67
 title: 为 voci Web UI 建立 Playwright E2E 测试框架
-status: 'Basic: In Progress'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-30 16:27'
-updated_date: '2026-06-30 23:29'
+updated_date: '2026-06-30 23:53'
 labels:
   - 'kind:basic'
 dependencies: []

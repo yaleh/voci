@@ -1,14 +1,14 @@
 ---
 id: TASK-69
 title: voci serve 输出 startup 事件到 stdout，简化 voci-listen 为 1 Bash + 1 Monitor
-status: 'Basic: Backlog'
+status: 'Basic: Done'
 assignee: []
 created_date: '2026-06-30 22:50'
-updated_date: '2026-06-30 23:04'
+updated_date: '2026-06-30 23:58'
 labels:
   - 'kind:basic'
 dependencies: []
-ordinal: 42000
+ordinal: 1000
 ---
 
 ## Description
@@ -278,4 +278,6 @@ premise-ledger:
 [H] Phase B 'tests' are grep assertions on Markdown — unconventional but appropriate for the artifact type (SKILL.md is not Go code)
 [H] Acceptance Gate coverage awk always exits 0 regardless of pass/fail; a minor weakness but coverage enforcement is belt-and-suspenders given existing thresholds in CLAUDE.md
 GCL-self-report: E=5 C=6 H=3
+
+claimed: 2026-06-30T23:55:25Z
 <!-- SECTION:NOTES:END -->

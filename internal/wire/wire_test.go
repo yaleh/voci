@@ -45,12 +45,15 @@ var fakeRewrite RewriteFn = func(ctx context.Context, hinted, hint string, chatF
 	return "Fix login bug in TASK-1", nil
 }
 
+// noopInject is a safe no-op injector for tests — it never executes real commands.
+var noopInject = InjectFn(func(text string) error { return nil })
+
 func TestCLIFileFlagPrintsRAW(t *testing.T) {
 	setTestEnv(t)
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +67,7 @@ func TestCLIFileFlagPrintsHINTED(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,7 +81,7 @@ func TestCLIFileFlagPrintsREWRITTEN(t *testing.T) {
 	wavPath := makeTempWav(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", wavPath}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +94,7 @@ func TestCLINoFileExitsNonzero(t *testing.T) {
 	setTestEnv(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil)
+	err := run([]string{}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing --file")
 	}
@@ -101,7 +104,7 @@ func TestCLIFileMissingExitsNonzero(t *testing.T) {
 	setTestEnv(t)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--file", "/nonexistent.wav"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", "/nonexistent.wav"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -113,7 +116,7 @@ func TestCLIIterateFlagAccepted(t *testing.T) {
 
 	var stdout bytes.Buffer
 	// Empty stdin means iterate loop exits immediately.
-	err := run([]string{"--file", wavPath, "--iterate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil)
+	err := run([]string{"--file", wavPath, "--iterate"}, &stdout, strings.NewReader(""), fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,7 +274,7 @@ func TestDispatch_OnceSubcommand(t *testing.T) {
 	err := dispatch(
 		[]string{"once", "--file", wavPath},
 		&stdout, strings.NewReader(""),
-		fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil,
+		fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -289,7 +292,7 @@ func TestDispatch_LeadingFlagFallsBackToLegacy(t *testing.T) {
 	err := dispatch(
 		[]string{"--file", wavPath},
 		&stdout, strings.NewReader(""),
-		fakeTranscribe, fakeHinted, fakeRewrite, nil, nil, nil, nil, nil,
+		fakeTranscribe, fakeHinted, fakeRewrite, noopInject, nil, nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -688,5 +691,32 @@ func TestFirstNonEmpty_ReturnsFirst(t *testing.T) {
 	got := firstNonEmpty("", "second", "third")
 	if got != "second" {
 		t.Errorf("expected 'second', got %q", got)
+	}
+}
+
+// TestAccidentalTmuxInjection verifies that tests with nil injectFn do not
+// accidentally execute real tmux send-keys, even when TMUX_PANE is set.
+func TestAccidentalTmuxInjection(t *testing.T) {
+	origTMUX := os.Getenv("TMUX_PANE")
+	os.Setenv("TMUX_PANE", "%140")
+	defer os.Setenv("TMUX_PANE", origTMUX)
+
+	setTestEnv(t)
+	wavPath := makeTempWav(t)
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--file", wavPath},
+		&stdout, strings.NewReader(""),
+		fakeTranscribe, fakeHinted, fakeRewrite,
+		nil, nil, nil, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := stdout.String()
+	if strings.Contains(output, "tmux") || strings.Contains(output, "send-keys") {
+		t.Errorf("stdout must NOT contain tmux/send-keys when injectFn is nil, got: %q", output)
 	}
 }

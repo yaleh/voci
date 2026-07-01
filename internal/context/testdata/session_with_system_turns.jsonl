@@ -1,0 +1,6 @@
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"go build ./..."}}]}}
+{"type":"user","message":{"role":"user","content":"real user message TASK-3"}}
+{"type":"user","promptSource":"system","message":{"role":"user","content":"TASK-99 task-notification body"}}
+{"type":"user","message":{"role":"user","content":"<task-notification\n<task>TASK-99</task>\ntask-notification body</task-notification>"}}
+{"type":"user","message":{"role":"user","content":"<system-reminder>\nsystem-reminder body\n</system-reminder>"}}
+{"isCompactSummary":true,"type":"user","message":{"role":"user","content":"compact body"}}

@@ -27,11 +27,42 @@ var stopWords = map[string]bool{
 }
 
 func extractCodeTokens(text string) []string {
+	return (&DynamicEntitiesSource{}).extractCodeTokens(text)
+}
+
+// DynamicEntitiesSource extracts code-style tokens from recent dialogue text.
+type DynamicEntitiesSource struct {
+	// TextFn returns prose text for extraction. If nil, reads from SessionSource.
+	TextFn func() string
+	// TokenCap caps the number of dynamic tokens returned. Zero means the default of 30.
+	TokenCap int
+	// MinTokenLen is the minimum token length to keep (also drives the plain-ASCII-word
+	// regex quantifier). Zero means the default of 4.
+	MinTokenLen int
+}
+
+// extractCodeTokens extracts code-style tokens from text, honoring TokenCap/MinTokenLen
+// (falling back to the defaults 30/4 when unset).
+func (s *DynamicEntitiesSource) extractCodeTokens(text string) []string {
+	tokenCap := s.TokenCap
+	if tokenCap == 0 {
+		tokenCap = 30
+	}
+	minTokenLen := s.MinTokenLen
+	if minTokenLen == 0 {
+		minTokenLen = 4
+	}
+
+	asciiWordRe := reAsciiWord
+	if minTokenLen != 4 {
+		asciiWordRe = regexp.MustCompile(fmt.Sprintf(`[a-zA-Z]{%d,}`, minTokenLen))
+	}
+
 	seen := make(map[string]bool)
 	var results []string
 
 	addToken := func(t string) {
-		if len(t) < 4 || stopWords[strings.ToLower(t)] || seen[t] {
+		if len(t) < minTokenLen || stopWords[strings.ToLower(t)] || seen[t] {
 			return
 		}
 		seen[t] = true
@@ -44,21 +75,15 @@ func extractCodeTokens(text string) []string {
 		}
 	}
 
-	// plain ASCII words >= 4 chars (not already captured)
-	for _, m := range reAsciiWord.FindAllString(text, -1) {
+	// plain ASCII words >= minTokenLen chars (not already captured)
+	for _, m := range asciiWordRe.FindAllString(text, -1) {
 		addToken(m)
 	}
 
-	if len(results) > 30 {
-		results = results[:30]
+	if len(results) > tokenCap {
+		results = results[:tokenCap]
 	}
 	return results
-}
-
-// DynamicEntitiesSource extracts code-style tokens from recent dialogue text.
-type DynamicEntitiesSource struct {
-	// TextFn returns prose text for extraction. If nil, reads from SessionSource.
-	TextFn func() string
 }
 
 func (s *DynamicEntitiesSource) Name() string { return "dynamic_entities" }
@@ -100,7 +125,7 @@ func (s *DynamicEntitiesSource) Fetch(root string) (string, string) {
 		}
 	}
 
-	tokens := extractCodeTokens(text)
+	tokens := s.extractCodeTokens(text)
 	var dynamic []string
 	for _, t := range tokens {
 		if !staticTerms[t] {

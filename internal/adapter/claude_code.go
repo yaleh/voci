@@ -17,8 +17,14 @@ type ClaudeCodeAdapter struct {
 
 // NewClaudeCodeAdapter creates a ClaudeCodeAdapter with a SessionSource and default injector.
 func NewClaudeCodeAdapter(tmuxTarget, mcpAddr string) *ClaudeCodeAdapter {
+	return NewClaudeCodeAdapterWithSource(tmuxTarget, mcpAddr, &vocicontext.SessionSource{Lines: 100})
+}
+
+// NewClaudeCodeAdapterWithSource creates a ClaudeCodeAdapter with a caller-supplied
+// Source (e.g. a SessionSource configured from config.Config) and default injector.
+func NewClaudeCodeAdapterWithSource(tmuxTarget, mcpAddr string, src vocicontext.Source) *ClaudeCodeAdapter {
 	return &ClaudeCodeAdapter{
-		src:     &vocicontext.SessionSource{Lines: 100},
+		src:     src,
 		inj:     inject.NewDefaultInjector(tmuxTarget),
 		mcpAddr: mcpAddr,
 	}

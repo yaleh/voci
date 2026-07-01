@@ -395,6 +395,49 @@ func TestServeGeminiUsesMergedFn(t *testing.T) {
 	}
 }
 
+func TestServePopulatesVADConfigFromEnv(t *testing.T) {
+	setTestEnv(t)
+	setCFEnv(t)
+	t.Setenv("VOCI_VAD_THRESHOLD", "0.05")
+	t.Setenv("VOCI_MIN_AUDIO_MS", "500")
+
+	var capturedServer *daemon.Server
+	old := testOnServerBuilt
+	testOnServerBuilt = func(srvIface interface{}) {
+		if s, ok := srvIface.(*daemon.Server); ok {
+			capturedServer = s
+		}
+	}
+	defer func() { testOnServerBuilt = old }()
+
+	fakeManagedFn := StartManagedTunnelFn(func(ctx context.Context, cfg tunnel.ManagedTunnelConfig, port int, logW io.Writer) (*exec.Cmd, string, error) {
+		cmd := exec.Command("true")
+		if err := cmd.Start(); err != nil {
+			return nil, "", err
+		}
+		return cmd, "https://voci-test.example.com", nil
+	})
+
+	var stdout bytes.Buffer
+	err := run(
+		[]string{"--serve", "--share", "--serve-port=0", "--share-auth=tok"},
+		&stdout, strings.NewReader(""),
+		nil, nil, nil, nil, nil, nil, nil, fakeManagedFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedServer == nil {
+		t.Fatal("expected testOnServerBuilt to capture a *daemon.Server")
+	}
+	if capturedServer.VADThreshold != 0.05 {
+		t.Errorf("VADThreshold = %v, want 0.05", capturedServer.VADThreshold)
+	}
+	if capturedServer.MinAudioMs != 500 {
+		t.Errorf("MinAudioMs = %v, want 500", capturedServer.MinAudioMs)
+	}
+}
+
 func setCFEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLOUDFLARE_API_TOKEN", "fake-cf-token")

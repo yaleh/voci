@@ -111,10 +111,11 @@ type toolInput struct {
 	Command  string `json:"command"`
 }
 
+// Default values used when the corresponding SessionSource field is zero.
 const (
-	maxProseTurns        = 6
-	maxProseCharsPerTurn = 500
-	maxProseCharsTotal   = 3000
+	defaultMaxProseTurns        = 6
+	defaultMaxProseCharsPerTurn = 500
+	defaultMaxProseCharsTotal   = 3000
 )
 
 // taskIDPattern matches TASK-N references.
@@ -126,7 +127,20 @@ var fencedCodeBlock = regexp.MustCompile("```[\\s\\S]*?```")
 
 // parseSessionSnippet extracts relevant information from JSONL session lines.
 // It returns a formatted snippet with editing, commands, task mentions, and recent prose.
-func parseSessionSnippet(lines []string) string {
+func (s *SessionSource) parseSessionSnippet(lines []string) string {
+	maxProseTurns := s.MaxProseTurns
+	if maxProseTurns == 0 {
+		maxProseTurns = defaultMaxProseTurns
+	}
+	maxProseCharsPerTurn := s.MaxProseCharsPerTurn
+	if maxProseCharsPerTurn == 0 {
+		maxProseCharsPerTurn = defaultMaxProseCharsPerTurn
+	}
+	maxProseCharsTotal := s.MaxProseCharsTotal
+	if maxProseCharsTotal == 0 {
+		maxProseCharsTotal = defaultMaxProseCharsTotal
+	}
+
 	fileSet := make(map[string]bool)
 	cmdSet := make(map[string]bool)
 	taskSet := make(map[string]bool)
@@ -320,7 +334,11 @@ type DialogueTurn struct {
 // filtering with parseSessionSnippet but does NOT flatten whitespace, drop
 // blank lines, or strip code fences — the frontend renders this Markdown as-is.
 // Returns nil when there are no displayable turns.
-func parseSessionDialogue(lines []string) []DialogueTurn {
+func (s *SessionSource) parseSessionDialogue(lines []string) []DialogueTurn {
+	maxProseTurns := s.MaxProseTurns
+	if maxProseTurns == 0 {
+		maxProseTurns = defaultMaxProseTurns
+	}
 	var turns []DialogueTurn
 
 	for _, line := range lines {
@@ -392,9 +410,13 @@ func readSessionFile(path string) string {
 
 // SessionSource reads Claude Code session JSONL and contributes recent activity context.
 type SessionSource struct {
-	Lines       int            // number of tail lines to read; default 100
-	jsonlPathFn func() string  // override for testing; nil = use sessionIDFn or env var
-	sessionIDFn func() string  // override for testing; nil = read ~/.voci/session file
+	Lines                int // number of tail lines to read; default 100
+	MaxProseTurns        int // recent turns kept in hint/dialogue; default 6
+	MaxProseCharsPerTurn int // per-turn char cap in the flattened hint; default 500
+	MaxProseCharsTotal   int // total char cap in the flattened hint; default 3000
+
+	jsonlPathFn func() string // override for testing; nil = use sessionIDFn or env var
+	sessionIDFn func() string // override for testing; nil = read ~/.voci/session file
 }
 
 // Name returns "session".
@@ -451,7 +473,7 @@ func (s *SessionSource) Fetch(root string) (string, string) {
 	if lines == nil {
 		return "", "session"
 	}
-	return parseSessionSnippet(lines), "session"
+	return s.parseSessionSnippet(lines), "session"
 }
 
 // Dialogue returns recent conversation turns with full Markdown fidelity for the
@@ -462,5 +484,5 @@ func (s *SessionSource) Dialogue(root string) []DialogueTurn {
 	if lines == nil {
 		return nil
 	}
-	return parseSessionDialogue(lines)
+	return s.parseSessionDialogue(lines)
 }

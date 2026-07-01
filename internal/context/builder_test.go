@@ -410,6 +410,101 @@ func TestBuildContextBackwardCompat(t *testing.T) {
 	}
 }
 
+// ---- Config threading: Builder.CacheTTL ----
+
+func TestBuildCached_CustomTTL_BypassesStaleCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	vociDir := filepath.Join(tmpDir, ".voci")
+	if err := os.MkdirAll(vociDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cached := Result{AsrHint: "stale_hint"}
+	cf := struct {
+		Result    Result    `json:"result"`
+		CreatedAt time.Time `json:"created_at"`
+	}{Result: cached, CreatedAt: time.Now().Add(-5 * time.Millisecond)}
+	data, _ := json.Marshal(cf)
+	if err := os.WriteFile(filepath.Join(vociDir, "context_cache.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Builder{CacheTTL: 1 * time.Millisecond}
+	b.Register(&KnownEntitiesSource{})
+
+	result := b.BuildCached(tmpDir)
+	if result.AsrHint == "stale_hint" {
+		t.Error("expected cache to be bypassed when older than CacheTTL, got stale cached hint")
+	}
+}
+
+func TestBuildCached_CustomTTL_UsesFreshCache(t *testing.T) {
+	tmpDir := t.TempDir()
+	makeTasksDir(t, tmpDir)
+
+	vociDir := filepath.Join(tmpDir, ".voci")
+	if err := os.MkdirAll(vociDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cached := Result{AsrHint: "fresh_hint"}
+	cf := struct {
+		Result    Result    `json:"result"`
+		CreatedAt time.Time `json:"created_at"`
+	}{Result: cached, CreatedAt: time.Now()}
+	data, _ := json.Marshal(cf)
+	if err := os.WriteFile(filepath.Join(vociDir, "context_cache.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &Builder{CacheTTL: 1 * time.Hour}
+	result := b.BuildCached(tmpDir)
+	if result.AsrHint != "fresh_hint" {
+		t.Errorf("expected cached AsrHint 'fresh_hint', got %q", result.AsrHint)
+	}
+}
+
+// ---- Config threading: BuildContextWithSourceAndTuning ----
+
+func TestBuildContextWithSourceAndTuning_AppliesEntityTuning(t *testing.T) {
+	dir := t.TempDir()
+	tuning := BuilderTuning{EntityTokenCap: 1, EntityMinTokenLen: 4}
+	// TextFn override not available via this entry point, so drive dynamic
+	// entities through defaultBuilder's own DynamicEntitiesSource by asserting
+	// the tuning value is propagated onto it.
+	b := defaultBuilderWithTuning(dir, noopGit, tuning)
+	for _, src := range b.Sources {
+		if des, ok := src.(*DynamicEntitiesSource); ok {
+			if des.TokenCap != 1 {
+				t.Errorf("TokenCap = %d, want 1", des.TokenCap)
+			}
+			if des.MinTokenLen != 4 {
+				t.Errorf("MinTokenLen = %d, want 4", des.MinTokenLen)
+			}
+			return
+		}
+	}
+	t.Error("defaultBuilderWithTuning should register a DynamicEntitiesSource")
+}
+
+func TestBuildContextWithSourceAndTuning_AppliesCacheTTL(t *testing.T) {
+	dir := t.TempDir()
+	tuning := BuilderTuning{CacheTTL: 5 * time.Second}
+	b := defaultBuilderWithTuning(dir, noopGit, tuning)
+	if b.CacheTTL != 5*time.Second {
+		t.Errorf("CacheTTL = %v, want 5s", b.CacheTTL)
+	}
+}
+
+func TestBuildContextWithSourceAndTuning_ReturnsHint(t *testing.T) {
+	dir := t.TempDir()
+	makeTasksDir(t, dir)
+	result := BuildContextWithSourceAndTuning(dir, nil, noopGit, BuilderTuning{})
+	if !strings.Contains(result, "## Known Entities") {
+		t.Errorf("expected ## Known Entities in hint, got: %s", result)
+	}
+}
+
 // ---- TASK-32: DynamicEntitiesSource wired into defaultBuilder ----
 
 func TestDefaultBuilder_HasDynamicEntitiesSource(t *testing.T) {

@@ -60,7 +60,7 @@ func TestParseSessionSnippet_ExtractsReadPath(t *testing.T) {
 	lines := []string{
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"internal/context/builder.go"}}]}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "internal/context/builder.go") {
 		t.Errorf("expected file path in snippet, got: %q", snippet)
 	}
@@ -70,7 +70,7 @@ func TestParseSessionSnippet_ExtractsBashCommand(t *testing.T) {
 	lines := []string{
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "go test ./...") {
 		t.Errorf("expected bash command in snippet, got: %q", snippet)
 	}
@@ -80,7 +80,7 @@ func TestParseSessionSnippet_ExtractsTaskID(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"role":"user","content":"working on TASK-3 now"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "TASK-3") {
 		t.Errorf("expected TASK-3 in snippet, got: %q", snippet)
 	}
@@ -93,7 +93,7 @@ func TestParseSessionSnippet_SkipsBadJSON(t *testing.T) {
 		"also bad {{{{",
 	}
 	// Should not panic
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "make build") {
 		t.Errorf("expected 'make build' from valid line, got: %q", snippet)
 	}
@@ -374,7 +374,7 @@ func TestParseSessionSnippet_RanFirstLineOnly(t *testing.T) {
 	lines := []string{
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"` + "cat <<'EOF'\\nbody line\\nmore body\\nEOF" + `"}}]}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "cat <<'EOF'") {
 		t.Errorf("expected first line of command in snippet, got: %q", snippet)
 	}
@@ -394,7 +394,7 @@ func TestParseSessionSnippet_ExtractsRecentProse(t *testing.T) {
 		`{"type":"user","message":{"role":"user","content":"Web 服务器 在 8080 端口"}}`,
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"先看 internal/daemon"}]}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "## Recent Dialogue") {
 		t.Errorf("expected ## Recent Dialogue heading, got: %q", snippet)
 	}
@@ -424,7 +424,7 @@ func TestParseSessionSnippet_ProseCapped(t *testing.T) {
 	recentMarker := "RECENT_UNIQUE_MARKER_XYZ"
 	lines = append(lines, `{"type":"user","message":{"role":"user","content":"`+recentMarker+`"}}`)
 
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 
 	// The ## Recent Dialogue block must exist
 	if !strings.Contains(snippet, "## Recent Dialogue") {
@@ -474,7 +474,7 @@ func TestParseSessionSnippet_SkipsPromptSourceSystem(t *testing.T) {
 	lines := []string{
 		`{"type":"user","promptSource":"system","message":{"role":"user","content":"should not appear TASK-42"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if strings.Contains(snippet, "should not appear") {
 		t.Errorf("expected snippet to skip promptSource:system entry, but got: %q", snippet)
 	}
@@ -487,7 +487,7 @@ func TestParseSessionSnippet_SkipsIsCompactSummary(t *testing.T) {
 	lines := []string{
 		`{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"compact summary text"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if strings.Contains(snippet, "compact summary text") {
 		t.Errorf("expected snippet to skip isCompactSummary entry, but got: %q", snippet)
 	}
@@ -497,7 +497,7 @@ func TestParseSessionSnippet_SkipsTaskNotificationPrefix(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"role":"user","content":"<task-notification\n<task>TASK-55</task>\nnotification body text</task-notification>"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if strings.Contains(snippet, "notification body text") {
 		t.Errorf("expected snippet to skip task-notification content, but got: %q", snippet)
 	}
@@ -510,7 +510,7 @@ func TestParseSessionSnippet_SkipsSystemReminderPrefix(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"role":"user","content":"<system-reminder>\nreminder schema body\n</system-reminder>"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if strings.Contains(snippet, "reminder schema body") {
 		t.Errorf("expected snippet to skip system-reminder content, but got: %q", snippet)
 	}
@@ -526,7 +526,7 @@ func TestParseSessionSnippet_MixedRealAndSystemTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 
 	if !strings.Contains(snippet, "real user message") {
 		t.Errorf("expected 'real user message' in snippet, got: %q", snippet)
@@ -552,7 +552,7 @@ func TestParseSessionSnippet_SystemTurnTaskIDNotExtracted(t *testing.T) {
 	lines := []string{
 		`{"type":"user","promptSource":"system","message":{"role":"user","content":"working on TASK-77"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if strings.Contains(snippet, "TASK-77") {
 		t.Errorf("expected TASK-77 NOT in snippet from promptSource:system entry, got: %q", snippet)
 	}
@@ -565,7 +565,7 @@ func TestParseSessionSnippet_SkipsLocalCommandCaveat(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"role":"user","content":"<local-command-caveat>Caveat content TASK-88</local-command-caveat><command-name>/model</command-name>"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if strings.Contains(snippet, "Caveat content") {
 		t.Error("expected <local-command-caveat> body to be filtered from dialogue")
 	}
@@ -578,7 +578,7 @@ func TestParseSessionSnippet_PassesThroughHeartEmoji(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"role":"user","content":"<3 you"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "<3 you") {
 		t.Errorf("expected '<3 you' to pass through filter, got: %s", snippet)
 	}
@@ -588,7 +588,7 @@ func TestParseSessionSnippet_PassesThroughGenericSyntax(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"role":"user","content":"<T> is a type parameter"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if !strings.Contains(snippet, "is a type parameter") {
 		t.Errorf("expected '<T> is a type parameter' to pass through, got: %s", snippet)
 	}
@@ -600,7 +600,7 @@ func TestParseSessionSnippet_LowercaseAngleBracketIsFiltered(t *testing.T) {
 	lines := []string{
 		`{"type":"user","message":{"role":"user","content":"<enter> to confirm"}}`,
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	if strings.Contains(snippet, "to confirm") {
 		t.Errorf("known limitation: <enter> is incorrectly filtered; got: %s", snippet)
 	}
@@ -616,7 +616,7 @@ func TestParseSessionSnippet_ChineseNotCorrupted(t *testing.T) {
 	// 200 Chinese chars × 3 bytes = 600 bytes > 500-byte limit → must truncate without corruption
 	content := strings.Repeat("测", 200)
 	line := sessionLine("user", content)
-	snippet := parseSessionSnippet([]string{line})
+	snippet := (&SessionSource{}).parseSessionSnippet([]string{line})
 	if strings.ContainsRune(snippet, '�') {
 		t.Error("truncated Chinese text must not contain UTF-8 replacement character")
 	}
@@ -630,7 +630,7 @@ func TestParseSessionSnippet_TruncatedTurnHasEllipsis(t *testing.T) {
 	// A turn longer than 500 chars must end with "…"
 	content := strings.Repeat("x", 600)
 	line := sessionLine("user", content)
-	snippet := parseSessionSnippet([]string{line})
+	snippet := (&SessionSource{}).parseSessionSnippet([]string{line})
 	// The "U: " prefix plus up to 500 runes plus "…"
 	if !strings.Contains(snippet, "…") {
 		t.Errorf("truncated turn must end with ellipsis, got: %s", snippet[:min(len(snippet), 60)])
@@ -682,7 +682,7 @@ func TestParseSessionSnippet_AssistantFencesStripped(t *testing.T) {
 		"message": map[string]any{"role": "assistant", "content": json.RawMessage(content)},
 	}
 	line, _ := json.Marshal(entry)
-	snippet := parseSessionSnippet([]string{string(line)})
+	snippet := (&SessionSource{}).parseSessionSnippet([]string{string(line)})
 	if strings.Contains(snippet, "```") {
 		t.Errorf("assistant fences must be stripped from dialogue hint, got: %s", snippet)
 	}
@@ -694,7 +694,7 @@ func TestParseSessionSnippet_AssistantFencesStripped(t *testing.T) {
 func TestParseSessionSnippet_UserFencesNotStripped(t *testing.T) {
 	// User turn with backtick content — normalizeProse is called unchanged
 	line := sessionLine("user", "use ```go``` to format code")
-	snippet := parseSessionSnippet([]string{line})
+	snippet := (&SessionSource{}).parseSessionSnippet([]string{line})
 	// normalizeProse collapses whitespace but does NOT strip fences for user turns
 	// The triple-backtick sequence should survive (it's just a string here)
 	if !strings.Contains(snippet, "go") {
@@ -710,7 +710,7 @@ func TestParseSessionSnippet_ChineseOuterCap(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		lines = append(lines, sessionLine("user", strings.Repeat("测", 200)))
 	}
-	snippet := parseSessionSnippet(lines)
+	snippet := (&SessionSource{}).parseSessionSnippet(lines)
 	// Count how many "U: " prefixes appear
 	count := strings.Count(snippet, "U: ")
 	if count < 6 {
@@ -737,7 +737,7 @@ func buildAssistantLine(text string) string {
 // extraction must preserve that blank line verbatim (the old flattening dropped it).
 func TestParseSessionDialogue_PreservesBlankLineBeforeTable(t *testing.T) {
 	text := "总结：\n\n| 列A | 列B |\n|---|---|\n| 值1 | 值2 |"
-	turns := parseSessionDialogue([]string{buildAssistantLine(text)})
+	turns := (&SessionSource{}).parseSessionDialogue([]string{buildAssistantLine(text)})
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d: %+v", len(turns), turns)
 	}
@@ -757,7 +757,7 @@ func TestParseSessionDialogue_PreservesBlankLineBeforeTable(t *testing.T) {
 // (unlike parseSessionSnippet which strips fences for ASR noise reduction).
 func TestParseSessionDialogue_PreservesCodeFences(t *testing.T) {
 	text := "Here:\n\n```go\nfunc foo() {}\n```"
-	turns := parseSessionDialogue([]string{buildAssistantLine(text)})
+	turns := (&SessionSource{}).parseSessionDialogue([]string{buildAssistantLine(text)})
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -774,7 +774,7 @@ func TestParseSessionDialogue_UserAndAssistantRoles(t *testing.T) {
 		sessionLine("user", "问题在哪里？"),
 		buildAssistantLine("答案如下。"),
 	}
-	turns := parseSessionDialogue(lines)
+	turns := (&SessionSource{}).parseSessionDialogue(lines)
 	if len(turns) != 2 {
 		t.Fatalf("expected 2 turns, got %d: %+v", len(turns), turns)
 	}
@@ -793,7 +793,7 @@ func TestParseSessionDialogue_SkipsSystemAndHarnessTurns(t *testing.T) {
 		`{"type":"user","message":{"role":"user","content":"<system-reminder>reminder junk</system-reminder>"}}`,
 		sessionLine("user", "real message"),
 	}
-	turns := parseSessionDialogue(lines)
+	turns := (&SessionSource{}).parseSessionDialogue(lines)
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn (only real message), got %d: %+v", len(turns), turns)
 	}
@@ -804,22 +804,22 @@ func TestParseSessionDialogue_SkipsSystemAndHarnessTurns(t *testing.T) {
 
 func TestParseSessionDialogue_KeepsLastNTurns(t *testing.T) {
 	var lines []string
-	for i := 0; i < maxProseTurns+4; i++ {
+	for i := 0; i < defaultMaxProseTurns+4; i++ {
 		lines = append(lines, sessionLine("user", "turn"+string(rune('A'+i))))
 	}
-	turns := parseSessionDialogue(lines)
-	if len(turns) != maxProseTurns {
-		t.Fatalf("expected %d turns, got %d", maxProseTurns, len(turns))
+	turns := (&SessionSource{}).parseSessionDialogue(lines)
+	if len(turns) != defaultMaxProseTurns {
+		t.Fatalf("expected %d turns, got %d", defaultMaxProseTurns, len(turns))
 	}
 	// The most recent turn must be present
-	last := "turn" + string(rune('A'+maxProseTurns+3))
+	last := "turn" + string(rune('A'+defaultMaxProseTurns+3))
 	if turns[len(turns)-1].Text != last {
 		t.Errorf("expected last turn %q, got %q", last, turns[len(turns)-1].Text)
 	}
 }
 
 func TestParseSessionDialogue_EmptyInput(t *testing.T) {
-	if turns := parseSessionDialogue(nil); turns != nil {
+	if turns := (&SessionSource{}).parseSessionDialogue(nil); turns != nil {
 		t.Errorf("expected nil for empty input, got %+v", turns)
 	}
 }

@@ -146,6 +146,44 @@ func TestDynamicEntitiesSource_CapAt30Tokens(t *testing.T) {
 	}
 }
 
+func TestDynamicEntitiesSource_CustomTokenCap(t *testing.T) {
+	var sb strings.Builder
+	for i := 0; i < 40; i++ {
+		sb.WriteString("TokenAlpha")
+		sb.WriteRune(rune('A' + i%26))
+		sb.WriteString("Beta ")
+	}
+	s := &DynamicEntitiesSource{TextFn: func() string { return sb.String() }, TokenCap: 5}
+	content, _ := s.Fetch("/tmp")
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	tokenLines := 0
+	for _, l := range lines {
+		if strings.Contains(l, ": ") {
+			tokenLines++
+		}
+	}
+	if tokenLines > 5 {
+		t.Errorf("expected at most 5 tokens with custom TokenCap, got %d", tokenLines)
+	}
+}
+
+func TestDynamicEntitiesSource_CustomMinTokenLen(t *testing.T) {
+	// "abc" is 3 chars, filtered by default MinTokenLen=4. With MinTokenLen=2, "abc" should pass.
+	s := &DynamicEntitiesSource{TextFn: func() string { return "abc xyz" }, MinTokenLen: 2}
+	content, _ := s.Fetch("/tmp")
+	if !strings.Contains(content, "abc: abc") {
+		t.Errorf("expected 'abc: abc' with custom MinTokenLen=2, got %q", content)
+	}
+}
+
+func TestDynamicEntitiesSource_DefaultMinTokenLenUnchanged(t *testing.T) {
+	s := &DynamicEntitiesSource{TextFn: func() string { return "abc xyz" }}
+	content, _ := s.Fetch("/tmp")
+	if strings.Contains(content, "abc: abc") {
+		t.Errorf("expected short words filtered with default MinTokenLen, got %q", content)
+	}
+}
+
 func BenchmarkExtractCodeTokens_3000Chars(b *testing.B) {
 	// ~3000 char mixed Chinese/English prose
 	prose := strings.Repeat("BuildContext SessionSource 请修改 defaultBuilder 运行 --iterate 检查 builder.go 更新 session_source ", 30)

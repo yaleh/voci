@@ -41,13 +41,17 @@ type StartManagedTunnelFn func(ctx context.Context, cfg tunnel.ManagedTunnelConf
 // name at index 0), builds wiring, dispatches, and returns an exit code.
 func Run(args []string) int {
 	target := os.Getenv("TMUX_PANE")
-	ccAdapter := adapter.NewClaudeCodeAdapter(target, "")
+	// Best-effort: config.LoadConfig always populates tuning defaults even when
+	// it errors on a missing API key, so ignoring the error here is safe.
+	cfg, _ := config.LoadConfig()
+	ccAdapter := adapter.NewClaudeCodeAdapterWithSource(target, "", sessionSourceFromConfig(cfg))
+	tuning := builderTuningFromConfig(cfg)
 	buildHintFn := BuildHintFn(func(root string) string {
 		src, err := ccAdapter.DiscoverContext()
 		if err != nil || src == nil {
-			return vocicontext.BuildContext(root, nil)
+			return vocicontext.BuildContextWithSourceAndTuning(root, nil, nil, tuning)
 		}
-		return vocicontext.BuildContextWithSource(root, src, nil)
+		return vocicontext.BuildContextWithSourceAndTuning(root, src, nil, tuning)
 	})
 	// Create the production injector here (not in run()) so tests can
 	// pass their own injectFn without triggering real tmux send-keys.
@@ -98,6 +102,26 @@ func dispatch(
 // testOnServerBuilt, when non-nil, is called right after the daemon.Server is
 // constructed in the --serve path. Only set this in tests.
 var testOnServerBuilt func(srv interface{})
+
+// sessionSourceFromConfig builds a SessionSource with B-class tuning fields from cfg.
+// Zero fields fall back to SessionSource's own internal defaults.
+func sessionSourceFromConfig(cfg config.Config) *vocicontext.SessionSource {
+	return &vocicontext.SessionSource{
+		Lines:                cfg.SessionLines,
+		MaxProseTurns:        cfg.MaxProseTurns,
+		MaxProseCharsPerTurn: cfg.MaxProseCharsPerTurn,
+		MaxProseCharsTotal:   cfg.MaxProseCharsTotal,
+	}
+}
+
+// builderTuningFromConfig builds a BuilderTuning from cfg's B-class fields.
+func builderTuningFromConfig(cfg config.Config) vocicontext.BuilderTuning {
+	return vocicontext.BuilderTuning{
+		CacheTTL:          time.Duration(cfg.ContextCacheTTLSeconds) * time.Second,
+		EntityTokenCap:    cfg.EntityTokenCap,
+		EntityMinTokenLen: cfg.EntityMinTokenLen,
+	}
+}
 
 // firstNonEmpty returns the first non-empty string from the arguments.
 func firstNonEmpty(vals ...string) string {
@@ -262,7 +286,8 @@ func run(
 			hintedFn = pipeline.RunHinted
 		}
 		// --serve path intentionally skips Rewrite (RewriteFn stays nil so server.go's nil-guard skips it)
-		ccAdapter := adapter.NewClaudeCodeAdapter(os.Getenv("TMUX_PANE"), "")
+		ccAdapter := adapter.NewClaudeCodeAdapterWithSource(os.Getenv("TMUX_PANE"), "", sessionSourceFromConfig(cfg))
+		serveTuning := builderTuningFromConfig(cfg)
 		serveHint := func() string {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -270,9 +295,9 @@ func run(
 			}
 			src, discErr := ccAdapter.DiscoverContext()
 			if discErr != nil || src == nil {
-				return vocicontext.BuildContext(cwd, nil)
+				return vocicontext.BuildContextWithSourceAndTuning(cwd, nil, nil, serveTuning)
 			}
-			return vocicontext.BuildContextWithSource(cwd, src, nil)
+			return vocicontext.BuildContextWithSourceAndTuning(cwd, src, nil, serveTuning)
 		}
 		srv := &daemon.Server{
 			TranscribeFn: daemon.TranscribeFn(transcribeFn),
@@ -296,10 +321,12 @@ func run(
 				}
 				return nil, nil
 			},
-			ChatFn:      chatFn,
-			APIKey:      cfg.ASRAPIKey,
-			Language:    cfg.Language,
-			EventWriter: os.Stdout,
+			ChatFn:       chatFn,
+			APIKey:       cfg.ASRAPIKey,
+			Language:     cfg.Language,
+			EventWriter:  os.Stdout,
+			VADThreshold: cfg.VADThreshold,
+			MinAudioMs:   cfg.MinAudioMs,
 		}
 		if cfg.ASRProvider == "gemini" && cfg.ASRAPIKey != "" {
 			apiKey := cfg.ASRAPIKey

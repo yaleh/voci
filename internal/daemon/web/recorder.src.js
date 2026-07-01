@@ -39,6 +39,23 @@ import DOMPurify from 'dompurify';
     setInterval(refreshContext, 5000);
   }
 
+  // Fetches D-class VAD tuning values once (not polled) and overrides the local
+  // fallback defaults. If unreachable (e.g. an older server without /api/config),
+  // VAD_THRESHOLD/MIN_AUDIO_MS keep their hardcoded fallback values.
+  function fetchConfig() {
+    apiFetch('/api/config')
+      .then(function(r) { return r.json(); })
+      .then(function(resp) {
+        if (typeof resp.vadThreshold === 'number' && resp.vadThreshold > 0) {
+          VAD_THRESHOLD = resp.vadThreshold;
+        }
+        if (typeof resp.minAudioMs === 'number' && resp.minAudioMs > 0) {
+          MIN_AUDIO_MS = resp.minAudioMs;
+        }
+      })
+      .catch(function() {});
+  }
+
   // Probes /api/context without a token to determine whether the server requires
   // Bearer auth (--share mode returns 401). In local mode (no --share) it returns
   // 200 and we proceed without prompting for a token at all.
@@ -47,6 +64,7 @@ import DOMPurify from 'dompurify';
     var tok = getToken();
     if (tok) {
       refreshContext();
+      fetchConfig();
       startPolling();
       return;
     }
@@ -67,6 +85,7 @@ import DOMPurify from 'dompurify';
             }
             lastRefresh = Date.now();
           }).catch(function() {});
+          fetchConfig();
           startPolling();
         }
       })
@@ -81,6 +100,7 @@ import DOMPurify from 'dompurify';
       localStorage.setItem(STORAGE_KEY, val);
       hideTokenOverlay();
       refreshContext();
+      fetchConfig();
       startPolling();
     }
   }
@@ -275,10 +295,13 @@ import DOMPurify from 'dompurify';
     } else {
       html = msgs.map(function (msg) {
         if (msg.role === 'user') {
+          // User turns render through the same marked + DOMPurify pipeline as
+          // assistant turns, so dictated/pasted Markdown (paragraphs, tables,
+          // lists) segments correctly instead of collapsing to a run-on.
           return '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:3px 15px;align-items:baseline">' +
             '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;text-align:right;padding-right:8px">' + esc(msg.time) + '</span>' +
             '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#5a7aaa;font-weight:500">you</span>' +
-            '<span style="font-size:12.5px;color:#a8bedc;line-height:1.5">' + esc(msg.text) + '</span>' +
+            '<span style="font-size:12.5px;color:#a8bedc;line-height:1.5">' + mdToHtml(msg.text) + '</span>' +
             '</div>';
         }
         var evHtml = '';
@@ -548,6 +571,14 @@ import DOMPurify from 'dompurify';
     // Render messages directly into the dialogue feed (used by E2E tests).
     injectMessages: function (msgs) {
       renderDialogue(msgs);
+    },
+    // Pure Markdown→sanitized-HTML transform (marked + DOMPurify), exposed so
+    // frontend unit tests can assert rendering without a backend.
+    mdToHtml: mdToHtml,
+    // Current VAD tuning values, reflecting /api/config once fetched (or the
+    // hardcoded fallback defaults if unreachable). Used by e2e config tests.
+    getVadConfig: function () {
+      return { vadThreshold: VAD_THRESHOLD, minAudioMs: MIN_AUDIO_MS };
     },
   };
 

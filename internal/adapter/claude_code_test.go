@@ -65,6 +65,22 @@ func TestClaudeCodeAdapter_DiscoverContext_DefaultIsSessionSource(t *testing.T) 
 	}
 }
 
+func TestNewClaudeCodeAdapterWithSource_UsesGivenSource(t *testing.T) {
+	src := &vocicontext.SessionSource{Lines: 42}
+	a := NewClaudeCodeAdapterWithSource("", "", src)
+	got, err := a.DiscoverContext()
+	if err != nil {
+		t.Fatalf("DiscoverContext() unexpected error: %v", err)
+	}
+	ss, ok := got.(*vocicontext.SessionSource)
+	if !ok {
+		t.Fatalf("DiscoverContext() returned %T, want *context.SessionSource", got)
+	}
+	if ss.Lines != 42 {
+		t.Errorf("Lines = %d, want 42", ss.Lines)
+	}
+}
+
 func TestClaudeCodeAdapter_Deliver_CallsInjector(t *testing.T) {
 	mi := &mockInjector{}
 	a := &ClaudeCodeAdapter{inj: mi}

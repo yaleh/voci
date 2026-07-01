@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -314,5 +315,145 @@ func TestLoadConfigASRFieldsFromFile(t *testing.T) {
 	}
 	if cfg.ASRModel != "alibaba/qwen3-asr-flash" {
 		t.Errorf("ASRModel: want alibaba/qwen3-asr-flash, got %q", cfg.ASRModel)
+	}
+}
+
+// Tuning fields (B-class server behavior + D-class frontend VAD params, all
+// sourced through the same env > yaml > default Config mechanism).
+
+func TestLoadConfigTuningFieldsFromEnv(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		set  string
+		get  func(Config) string
+	}{
+		{"MaxProseTurns", "VOCI_MAX_PROSE_TURNS", "9", func(c Config) string { return fmt.Sprint(c.MaxProseTurns) }},
+		{"MaxProseCharsPerTurn", "VOCI_MAX_PROSE_CHARS_PER_TURN", "777", func(c Config) string { return fmt.Sprint(c.MaxProseCharsPerTurn) }},
+		{"MaxProseCharsTotal", "VOCI_MAX_PROSE_CHARS_TOTAL", "4321", func(c Config) string { return fmt.Sprint(c.MaxProseCharsTotal) }},
+		{"SessionLines", "VOCI_SESSION_LINES", "250", func(c Config) string { return fmt.Sprint(c.SessionLines) }},
+		{"ContextCacheTTLSeconds", "VOCI_CONTEXT_CACHE_TTL_SECONDS", "120", func(c Config) string { return fmt.Sprint(c.ContextCacheTTLSeconds) }},
+		{"EntityTokenCap", "VOCI_ENTITY_TOKEN_CAP", "50", func(c Config) string { return fmt.Sprint(c.EntityTokenCap) }},
+		{"EntityMinTokenLen", "VOCI_ENTITY_MIN_TOKEN_LEN", "6", func(c Config) string { return fmt.Sprint(c.EntityMinTokenLen) }},
+		{"VADThreshold", "VOCI_VAD_THRESHOLD", "0.02", func(c Config) string { return fmt.Sprint(c.VADThreshold) }},
+		{"MinAudioMs", "VOCI_MIN_AUDIO_MS", "450", func(c Config) string { return fmt.Sprint(c.MinAudioMs) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ASR_API_KEY", "sk-test")
+			t.Setenv(tc.env, tc.set)
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.get(cfg); got != tc.set {
+				t.Errorf("%s: want %q, got %q", tc.name, tc.set, got)
+			}
+		})
+	}
+}
+
+func TestLoadConfigTuningFieldsDefault(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+		get  func(Config) string
+	}{
+		{"MaxProseTurns", "6", func(c Config) string { return fmt.Sprint(c.MaxProseTurns) }},
+		{"MaxProseCharsPerTurn", "500", func(c Config) string { return fmt.Sprint(c.MaxProseCharsPerTurn) }},
+		{"MaxProseCharsTotal", "3000", func(c Config) string { return fmt.Sprint(c.MaxProseCharsTotal) }},
+		{"SessionLines", "100", func(c Config) string { return fmt.Sprint(c.SessionLines) }},
+		{"ContextCacheTTLSeconds", "60", func(c Config) string { return fmt.Sprint(c.ContextCacheTTLSeconds) }},
+		{"EntityTokenCap", "30", func(c Config) string { return fmt.Sprint(c.EntityTokenCap) }},
+		{"EntityMinTokenLen", "4", func(c Config) string { return fmt.Sprint(c.EntityMinTokenLen) }},
+		{"VADThreshold", "0.01", func(c Config) string { return fmt.Sprint(c.VADThreshold) }},
+		{"MinAudioMs", "300", func(c Config) string { return fmt.Sprint(c.MinAudioMs) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("ASR_API_KEY", "sk-test")
+			t.Setenv("HOME", t.TempDir())
+			cfg, err := LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.get(cfg); got != tc.want {
+				t.Errorf("%s: want default %q, got %q", tc.name, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestLoadConfigSessionLinesFromFile(t *testing.T) {
+	t.Setenv("VOCI_SESSION_LINES", "")
+	t.Setenv("ASR_API_KEY", "sk-test")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	os.MkdirAll(dir+"/.config/voci", 0755)
+	os.WriteFile(dir+"/.config/voci/config.yaml", []byte("session_lines: 42\n"), 0644)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SessionLines != 42 {
+		t.Errorf("SessionLines: want 42, got %d", cfg.SessionLines)
+	}
+}
+
+func TestLoadConfigVADThresholdFromFile(t *testing.T) {
+	t.Setenv("VOCI_VAD_THRESHOLD", "")
+	t.Setenv("ASR_API_KEY", "sk-test")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	os.MkdirAll(dir+"/.config/voci", 0755)
+	os.WriteFile(dir+"/.config/voci/config.yaml", []byte("vad_threshold: 0.05\n"), 0644)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VADThreshold != 0.05 {
+		t.Errorf("VADThreshold: want 0.05, got %v", cfg.VADThreshold)
+	}
+}
+
+func TestLoadConfigSessionLinesEnvOverridesFile(t *testing.T) {
+	t.Setenv("VOCI_SESSION_LINES", "999")
+	t.Setenv("ASR_API_KEY", "sk-test")
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	os.MkdirAll(dir+"/.config/voci", 0755)
+	os.WriteFile(dir+"/.config/voci/config.yaml", []byte("session_lines: 42\n"), 0644)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SessionLines != 999 {
+		t.Errorf("SessionLines: want 999 (env wins), got %d", cfg.SessionLines)
+	}
+}
+
+func TestLoadConfigMaxProseTurnsInvalidEnvFallsBackToDefault(t *testing.T) {
+	t.Setenv("VOCI_MAX_PROSE_TURNS", "not-a-number")
+	t.Setenv("ASR_API_KEY", "sk-test")
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig must not fail on a malformed tuning env var: %v", err)
+	}
+	if cfg.MaxProseTurns != 6 {
+		t.Errorf("MaxProseTurns: want default 6 on invalid env, got %d", cfg.MaxProseTurns)
+	}
+}
+
+func TestLoadConfigVADThresholdInvalidEnvFallsBackToDefault(t *testing.T) {
+	t.Setenv("VOCI_VAD_THRESHOLD", "not-a-float")
+	t.Setenv("ASR_API_KEY", "sk-test")
+	t.Setenv("HOME", t.TempDir())
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig must not fail on a malformed tuning env var: %v", err)
+	}
+	if cfg.VADThreshold != 0.01 {
+		t.Errorf("VADThreshold: want default 0.01 on invalid env, got %v", cfg.VADThreshold)
 	}
 }

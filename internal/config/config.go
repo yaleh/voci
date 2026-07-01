@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,6 +26,19 @@ type Config struct {
 	CloudflareAccountID    string
 	CloudflareZoneID       string
 	CloudflareTunnelDomain string
+
+	// Tuning parameters (B-class: server-side context/ASR behavior; D-class:
+	// frontend VAD signal-processing params served read-only via /api/config).
+	// All default to the values that were previously hardcoded constants.
+	MaxProseTurns          int
+	MaxProseCharsPerTurn   int
+	MaxProseCharsTotal     int
+	SessionLines           int
+	ContextCacheTTLSeconds int
+	EntityTokenCap         int
+	EntityMinTokenLen      int
+	VADThreshold           float64
+	MinAudioMs             int
 }
 
 type fileConfig struct {
@@ -40,6 +54,35 @@ type fileConfig struct {
 	CloudflareAccountID    string `yaml:"cloudflare_account_id"`
 	CloudflareZoneID       string `yaml:"cloudflare_zone_id"`
 	CloudflareTunnelDomain string `yaml:"cloudflare_tunnel_domain"`
+
+	MaxProseTurns          int     `yaml:"max_prose_turns"`
+	MaxProseCharsPerTurn   int     `yaml:"max_prose_chars_per_turn"`
+	MaxProseCharsTotal     int     `yaml:"max_prose_chars_total"`
+	SessionLines           int     `yaml:"session_lines"`
+	ContextCacheTTLSeconds int     `yaml:"context_cache_ttl_seconds"`
+	EntityTokenCap         int     `yaml:"entity_token_cap"`
+	EntityMinTokenLen      int     `yaml:"entity_min_token_len"`
+	VADThreshold           float64 `yaml:"vad_threshold"`
+	MinAudioMs             int     `yaml:"min_audio_ms"`
+}
+
+// envInt sets *out from the named env var if it parses as an int. A missing
+// or malformed value is ignored (tuning knobs must never fail startup).
+func envInt(name string, out *int) {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			*out = n
+		}
+	}
+}
+
+// envFloat sets *out from the named env var if it parses as a float64.
+func envFloat(name string, out *float64) {
+	if v := os.Getenv(name); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			*out = f
+		}
+	}
 }
 
 // LoadConfig reads configuration from environment variables first,
@@ -60,6 +103,16 @@ func LoadConfig() (Config, error) {
 	cfg.CloudflareAccountID = os.Getenv("CF_ACCOUNT_ID")
 	cfg.CloudflareZoneID = os.Getenv("CF_ZONE_ID")
 	cfg.CloudflareTunnelDomain = os.Getenv("CF_TUNNEL_DOMAIN")
+
+	envInt("VOCI_MAX_PROSE_TURNS", &cfg.MaxProseTurns)
+	envInt("VOCI_MAX_PROSE_CHARS_PER_TURN", &cfg.MaxProseCharsPerTurn)
+	envInt("VOCI_MAX_PROSE_CHARS_TOTAL", &cfg.MaxProseCharsTotal)
+	envInt("VOCI_SESSION_LINES", &cfg.SessionLines)
+	envInt("VOCI_CONTEXT_CACHE_TTL_SECONDS", &cfg.ContextCacheTTLSeconds)
+	envInt("VOCI_ENTITY_TOKEN_CAP", &cfg.EntityTokenCap)
+	envInt("VOCI_ENTITY_MIN_TOKEN_LEN", &cfg.EntityMinTokenLen)
+	envFloat("VOCI_VAD_THRESHOLD", &cfg.VADThreshold)
+	envInt("VOCI_MIN_AUDIO_MS", &cfg.MinAudioMs)
 
 	// Try to load from file; VOCI_CONFIG overrides the default path.
 	cfgPath := os.Getenv("VOCI_CONFIG")
@@ -106,6 +159,33 @@ func LoadConfig() (Config, error) {
 				if cfg.CloudflareTunnelDomain == "" && fc.CloudflareTunnelDomain != "" {
 					cfg.CloudflareTunnelDomain = fc.CloudflareTunnelDomain
 				}
+				if cfg.MaxProseTurns == 0 && fc.MaxProseTurns != 0 {
+					cfg.MaxProseTurns = fc.MaxProseTurns
+				}
+				if cfg.MaxProseCharsPerTurn == 0 && fc.MaxProseCharsPerTurn != 0 {
+					cfg.MaxProseCharsPerTurn = fc.MaxProseCharsPerTurn
+				}
+				if cfg.MaxProseCharsTotal == 0 && fc.MaxProseCharsTotal != 0 {
+					cfg.MaxProseCharsTotal = fc.MaxProseCharsTotal
+				}
+				if cfg.SessionLines == 0 && fc.SessionLines != 0 {
+					cfg.SessionLines = fc.SessionLines
+				}
+				if cfg.ContextCacheTTLSeconds == 0 && fc.ContextCacheTTLSeconds != 0 {
+					cfg.ContextCacheTTLSeconds = fc.ContextCacheTTLSeconds
+				}
+				if cfg.EntityTokenCap == 0 && fc.EntityTokenCap != 0 {
+					cfg.EntityTokenCap = fc.EntityTokenCap
+				}
+				if cfg.EntityMinTokenLen == 0 && fc.EntityMinTokenLen != 0 {
+					cfg.EntityMinTokenLen = fc.EntityMinTokenLen
+				}
+				if cfg.VADThreshold == 0 && fc.VADThreshold != 0 {
+					cfg.VADThreshold = fc.VADThreshold
+				}
+				if cfg.MinAudioMs == 0 && fc.MinAudioMs != 0 {
+					cfg.MinAudioMs = fc.MinAudioMs
+				}
 			}
 		}
 	}
@@ -119,6 +199,33 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.ASRProvider == "" {
 		cfg.ASRProvider = "siliconflow"
+	}
+	if cfg.MaxProseTurns == 0 {
+		cfg.MaxProseTurns = 6
+	}
+	if cfg.MaxProseCharsPerTurn == 0 {
+		cfg.MaxProseCharsPerTurn = 500
+	}
+	if cfg.MaxProseCharsTotal == 0 {
+		cfg.MaxProseCharsTotal = 3000
+	}
+	if cfg.SessionLines == 0 {
+		cfg.SessionLines = 100
+	}
+	if cfg.ContextCacheTTLSeconds == 0 {
+		cfg.ContextCacheTTLSeconds = 60
+	}
+	if cfg.EntityTokenCap == 0 {
+		cfg.EntityTokenCap = 30
+	}
+	if cfg.EntityMinTokenLen == 0 {
+		cfg.EntityMinTokenLen = 4
+	}
+	if cfg.VADThreshold == 0 {
+		cfg.VADThreshold = 0.01
+	}
+	if cfg.MinAudioMs == 0 {
+		cfg.MinAudioMs = 300
 	}
 
 	// Backward-compat: if ASRAPIKey not set, fall back to SiliconFlowKey

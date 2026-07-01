@@ -42,6 +42,11 @@ func TestPlaywrightSetup(t *testing.T) {
 			return "## Known Entities\nAlice, Bob\n## Active Tasks\ntask-1\n## Recent Dialogue\nU: hello\nA: world\n## Claude Code Session\nsession info", nil
 		},
 		EventWriter: &buf,
+
+		// Non-default D-class VAD values so e2e/tests/config.spec.ts can assert
+		// /api/config and window.__voiceTest.getVadConfig() reflect real config.
+		VADThreshold: 0.05,
+		MinAudioMs:   500,
 	}
 
 	ts := httptest.NewServer(srv.Handler())

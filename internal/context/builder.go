@@ -30,6 +30,9 @@ type Result struct {
 // Builder builds context from registered sources.
 type Builder struct {
 	Sources []Source
+	// CacheTTL is how long BuildCached treats context_cache.json as fresh.
+	// Zero means the default of 60s.
+	CacheTTL time.Duration
 }
 
 // Register adds a source to the builder.
@@ -74,7 +77,11 @@ func (b *Builder) BuildCached(root string) Result {
 			CreatedAt time.Time `json:"created_at"`
 		}
 		if err := json.Unmarshal(data, &cf); err == nil {
-			if time.Since(cf.CreatedAt) < 60*time.Second {
+			ttl := b.CacheTTL
+			if ttl == 0 {
+				ttl = 60 * time.Second
+			}
+			if time.Since(cf.CreatedAt) < ttl {
 				return cf.Result
 			}
 		}
@@ -376,6 +383,39 @@ func defaultBuilder(root string, gitRunner GitRunner) *Builder {
 // gitRunner may be nil (uses DefaultGitRunner).
 func BuildContextWithSource(root string, src Source, gitRunner GitRunner) string {
 	b := defaultBuilder(root, gitRunner)
+	if src != nil {
+		b.Register(src)
+	}
+	return b.Build(root).AsrHint
+}
+
+// BuilderTuning holds B-class tuning knobs (sourced from config.Config) that get
+// threaded into Builder/DynamicEntitiesSource construction. Zero fields fall back
+// to each component's own internal default (see defaultBuilderWithTuning).
+type BuilderTuning struct {
+	CacheTTL          time.Duration
+	EntityTokenCap    int
+	EntityMinTokenLen int
+}
+
+// defaultBuilderWithTuning is like defaultBuilder but applies tuning to the
+// Builder itself and to the registered DynamicEntitiesSource.
+func defaultBuilderWithTuning(root string, gitRunner GitRunner, tuning BuilderTuning) *Builder {
+	b := defaultBuilder(root, gitRunner)
+	b.CacheTTL = tuning.CacheTTL
+	for _, src := range b.Sources {
+		if des, ok := src.(*DynamicEntitiesSource); ok {
+			des.TokenCap = tuning.EntityTokenCap
+			des.MinTokenLen = tuning.EntityMinTokenLen
+		}
+	}
+	return b
+}
+
+// BuildContextWithSourceAndTuning is like BuildContextWithSource but also applies
+// BuilderTuning (B-class config values) to the Builder and DynamicEntitiesSource.
+func BuildContextWithSourceAndTuning(root string, src Source, gitRunner GitRunner, tuning BuilderTuning) string {
+	b := defaultBuilderWithTuning(root, gitRunner, tuning)
 	if src != nil {
 		b.Register(src)
 	}

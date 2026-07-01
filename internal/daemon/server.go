@@ -1,15 +1,20 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
+	"time"
 
 	vocicontext "github.com/yaleh/voci/internal/context"
 	"github.com/yaleh/voci/internal/daemon/auth"
@@ -69,6 +74,10 @@ type Server struct {
 	// The resolved net.Addr is passed so callers can discover the assigned port
 	// when --serve-port 0 is used for OS-assigned ephemeral ports.
 	OnListening func(net.Addr)
+	// VADThreshold and MinAudioMs are D-class frontend VAD tuning values, sourced
+	// from config.Config and served read-only to the browser via /api/config.
+	VADThreshold float64
+	MinAudioMs   int
 }
 
 // Handler returns an http.Handler routing the voice endpoints and static UI.
@@ -77,9 +86,51 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/voice/transcribe", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleTranscribe)))
 	mux.Handle("/api/voice/emit", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleEmit)))
 	mux.Handle("/api/context", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleContext)))
+	mux.Handle("/api/config", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleConfig)))
 	sub, _ := fs.Sub(embeddedFS, "web")
-	mux.Handle("/", http.FileServerFS(sub))
+	mux.Handle("/", staticHandler(sub))
 	return mux
+}
+
+// staticHandler serves embedded web assets with a content-based ETag and
+// Cache-Control: no-cache. Because embed.FS files carry a zero ModTime,
+// http.FileServerFS emits no validators, so browsers heuristically cache the
+// bundle and can keep a stale copy across rebuilds. no-cache forces the browser
+// to revalidate every load; the content ETag lets the server answer 304 when the
+// asset is unchanged (cheap) and 200 with fresh bytes when it changes.
+func staticHandler(fsys fs.FS) http.Handler {
+	// bundleVer is a content hash of the JS bundle, injected into index.html as a
+	// ?v= query so a rebuilt bundle changes its URL. This defeats the Cloudflare
+	// tunnel's edge cache (which overrides origin Cache-Control with max-age),
+	// forcing a fresh fetch on every deploy. index.html itself is served fresh
+	// (no-cache; Cloudflare does not edge-cache text/html).
+	bundleVer := ""
+	if b, err := fs.ReadFile(fsys, "recorder.bundle.js"); err == nil {
+		sum := sha256.Sum256(b)
+		bundleVer = hex.EncodeToString(sum[:8])
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" {
+			name = "index.html"
+		}
+		b, err := fs.ReadFile(fsys, name)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if name == "index.html" && bundleVer != "" {
+			b = bytes.Replace(b, []byte("recorder.bundle.js"),
+				[]byte("recorder.bundle.js?v="+bundleVer), 1)
+		}
+		sum := sha256.Sum256(b)
+		etag := `"` + hex.EncodeToString(sum[:16]) + `"`
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Etag", etag)
+		// ServeContent honors the pre-set Etag for If-None-Match (→ 304) and sets
+		// Content-Type from the file extension.
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(b))
+	})
 }
 
 // Start starts the HTTP server on the given address.

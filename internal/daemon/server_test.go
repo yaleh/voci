@@ -821,6 +821,70 @@ func TestHandleContext_NilHintFnReturnsEmpty(t *testing.T) {
 	}
 }
 
+// /api/config endpoint (D-class VAD tuning values)
+
+func TestHandleConfig_ReturnsVADFields(t *testing.T) {
+	srv, _, _ := makeServer(t)
+	srv.VADThreshold = 0.05
+	srv.MinAudioMs = 500
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["vadThreshold"] != 0.05 {
+		t.Errorf("vadThreshold = %v, want 0.05", resp["vadThreshold"])
+	}
+	if resp["minAudioMs"] != float64(500) {
+		t.Errorf("minAudioMs = %v, want 500", resp["minAudioMs"])
+	}
+}
+
+func TestHandleConfig_DefaultsWhenUnset(t *testing.T) {
+	srv, _, _ := makeServer(t)
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["vadThreshold"] != float64(0) {
+		t.Errorf("vadThreshold = %v, want 0", resp["vadThreshold"])
+	}
+	if resp["minAudioMs"] != float64(0) {
+		t.Errorf("minAudioMs = %v, want 0", resp["minAudioMs"])
+	}
+}
+
+func TestHandleConfig_RequiresTokenWhenSet(t *testing.T) {
+	srv, _, _ := makeServer(t)
+	srv.BearerToken = "tok"
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/api/config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("want 401, got %d", resp.StatusCode)
+	}
+}
+
 func TestHandleTranscribe_FallbackReturnsHintedOutput(t *testing.T) {
 	var logBuf bytes.Buffer
 	log.SetOutput(&logBuf)

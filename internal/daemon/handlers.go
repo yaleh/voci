@@ -134,6 +134,18 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// handleConfig returns D-class frontend VAD tuning values (VADThreshold, MinAudioMs)
+// as JSON. Fetched once at page load by the Web UI, not polled. B-class internals
+// are never exposed here.
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	resp := map[string]any{
+		"vadThreshold": s.VADThreshold,
+		"minAudioMs":   s.MinAudioMs,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 type emitRequest struct {
 	Text string `json:"text"`
 	Kind string `json:"kind"`

@@ -180,6 +180,20 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  function mdToHtml(text) {
+    // 1. HTML-escape first so injected < > & are neutralised before regex runs.
+    var s = esc(text);
+    // 2. Inline code: `…` → <code>
+    s = s.replace(/`([^`]+)`/g,
+      '<code style="font-family:JetBrains Mono,monospace;font-size:11px;' +
+      'color:#7ab0e0;background:#0e1422;padding:0 3px;border-radius:3px">$1</code>');
+    // 3. Bold: **…** → <strong>
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    // 4. Italic: *…* → <em>
+    s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    return s;
+  }
+
   // ── Context ──────────────────────────────────────────────
 
   var TASK_COLORS = ['#22c55e', '#f97316', '#a855f7', '#5b9cf6', '#06b6d4', '#ec4899'];
@@ -277,7 +291,7 @@
           '<div style="display:grid;grid-template-columns:38px 28px 1fr;padding:0 15px;align-items:baseline">' +
           '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;text-align:right;padding-right:8px">' + esc(msg.time) + '</span>' +
           '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#d4894a;font-weight:500">cc</span>' +
-          '<span style="font-size:12.5px;color:#e4eaf5;line-height:1.5">' + esc(msg.text) + '</span>' +
+          '<span style="font-size:12.5px;color:#e4eaf5;line-height:1.5">' + mdToHtml(msg.text) + '</span>' +
           '</div>' + evHtml + '</div>';
       }).join('');
     }

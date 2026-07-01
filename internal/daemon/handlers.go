@@ -124,8 +124,14 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	resp := map[string]any{"hint": hint}
+	if s.DialogueFn != nil {
+		if turns, err := s.DialogueFn(r.Context()); err == nil && turns != nil {
+			resp["dialogue"] = turns
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"hint": hint})
+	json.NewEncoder(w).Encode(resp)
 }
 
 type emitRequest struct {

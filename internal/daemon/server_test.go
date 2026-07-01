@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	vocicontext "github.com/yaleh/voci/internal/context"
 	"github.com/yaleh/voci/internal/daemon/session"
 	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/pipeline"
@@ -439,6 +440,76 @@ func TestHandleContext_ReturnsHint(t *testing.T) {
 	if !strings.Contains(resp["hint"], "Known Entities") {
 		t.Errorf("hint missing Known Entities: %q", resp["hint"])
 	}
+}
+
+func TestHandleContext_ReturnsDialogue(t *testing.T) {
+	srv, _, _ := makeServer(t)
+	srv.HintFn = func(ctx context.Context) (string, error) { return "", nil }
+	// A GFM table with a preceding blank line — the exact structure that must
+	// survive transmission for marked to render it as a <table>.
+	md := "总结：\n\n| 列A | 列B |\n|---|---|\n| 值1 | 值2 |"
+	srv.DialogueFn = func(ctx context.Context) ([]vocicontext.DialogueTurn, error) {
+		return []vocicontext.DialogueTurn{
+			{Role: "user", Text: "问题？"},
+			{Role: "assistant", Text: md},
+		}, nil
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/context", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Hint     string                     `json:"hint"`
+		Dialogue []vocicontext.DialogueTurn `json:"dialogue"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Dialogue) != 2 {
+		t.Fatalf("expected 2 dialogue turns, got %d: %+v", len(resp.Dialogue), resp.Dialogue)
+	}
+	if resp.Dialogue[0].Role != "user" || resp.Dialogue[0].Text != "问题？" {
+		t.Errorf("turn 0 wrong: %+v", resp.Dialogue[0])
+	}
+	// Transmission fidelity: the markdown (incl. blank line before table) must
+	// round-trip byte-for-byte through JSON.
+	if resp.Dialogue[1].Text != md {
+		t.Errorf("markdown not preserved through JSON.\n got: %q\nwant: %q", resp.Dialogue[1].Text, md)
+	}
+	if !strings.Contains(resp.Dialogue[1].Text, "总结：\n\n|") {
+		t.Errorf("blank line before table lost in transmission: %q", resp.Dialogue[1].Text)
+	}
+}
+
+// TestHandleContext_NoDialogueFn verifies the dialogue field is omitted when
+// DialogueFn is nil, keeping the response a plain {hint} object.
+func TestHandleContext_NoDialogueFn(t *testing.T) {
+	srv, _, _ := makeServer(t)
+	srv.HintFn = func(ctx context.Context) (string, error) { return "h", nil }
+	// DialogueFn intentionally nil.
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/context", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if _, ok := parseJSONKeys(t, w.Body.Bytes())["dialogue"]; ok {
+		t.Errorf("dialogue key must be absent when DialogueFn is nil: %s", w.Body.String())
+	}
+}
+
+func parseJSONKeys(t *testing.T, b []byte) map[string]json.RawMessage {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	return m
 }
 
 func TestHandleContext_HintFnError(t *testing.T) {

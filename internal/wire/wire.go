@@ -282,6 +282,20 @@ func run(
 			HintFn: func(_ context.Context) (string, error) {
 				return serveHint(), nil
 			},
+			DialogueFn: func(_ context.Context) ([]vocicontext.DialogueTurn, error) {
+				cwd, err := os.Getwd()
+				if err != nil {
+					cwd = "."
+				}
+				src, discErr := ccAdapter.DiscoverContext()
+				if discErr != nil || src == nil {
+					return nil, nil
+				}
+				if ss, ok := src.(*vocicontext.SessionSource); ok {
+					return ss.Dialogue(cwd), nil
+				}
+				return nil, nil
+			},
 			ChatFn:      chatFn,
 			APIKey:      cfg.ASRAPIKey,
 			Language:    cfg.Language,

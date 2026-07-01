@@ -59,7 +59,12 @@ import DOMPurify from 'dompurify';
           r.json().then(function(resp) {
             setConnected(true);
             var hint = resp.hint || '';
-            if (hint !== lastHint) { lastHint = hint; renderContext(hint); }
+            var dlg = resp.dialogue || [];
+            var dlgJson = JSON.stringify(dlg);
+            if (hint !== lastHint || dlgJson !== lastDialogueJson) {
+              lastHint = hint; lastDialogue = dlg; lastDialogueJson = dlgJson;
+              renderContext(hint);
+            }
             lastRefresh = Date.now();
           }).catch(function() {});
           startPolling();
@@ -99,6 +104,8 @@ import DOMPurify from 'dompurify';
   var contextExpanded = false;
   var lastRefresh = Date.now();
   var lastHint = null;
+  var lastDialogue = [];   // structured dialogue turns from /api/context (full Markdown)
+  var lastDialogueJson = '';  // dedup guard for dialogue changes
   var lastDialogueHtml = '';
   var lastPillsHtml = '';
   var localMessages = [];
@@ -204,7 +211,6 @@ import DOMPurify from 'dompurify';
   function renderContext(hint) {
     var entSection  = extractSection(hint, '## Known Entities');
     var taskSection = extractSection(hint, '## Active Tasks');
-    var dlgSection  = extractSection(hint, '## Recent Dialogue');
 
     var eLines = entSection  ? entSection.split('\n').filter(Boolean)  : [];
     var tLines = taskSection ? taskSection.split('\n').filter(Boolean) : [];
@@ -248,13 +254,12 @@ import DOMPurify from 'dompurify';
 
     var now  = new Date();
     var time = pad(now.getHours()) + ':' + pad(now.getMinutes());
-    var ctxMsgs = [];
-    if (dlgSection) {
-      dlgSection.split('\n').filter(Boolean).forEach(function (l) {
-        if      (l.startsWith('A: ')) ctxMsgs.push({ role: 'assistant', text: l.slice(3), time: time });
-        else if (l.startsWith('U: ')) ctxMsgs.push({ role: 'user',      text: l.slice(3), time: time });
-      });
-    }
+    // Dialogue turns come from the structured /api/context "dialogue" field,
+    // preserving full Markdown (tables, code blocks, blank lines). Each turn's
+    // text is rendered verbatim via marked + DOMPurify in renderDialogue().
+    var ctxMsgs = lastDialogue.map(function (m) {
+      return { role: m.role, text: m.text, time: time };
+    });
     var ctxSet  = new Set(ctxMsgs.map(function (m) { return m.text; }));
     var pending = localMessages.filter(function (m) { return !ctxSet.has(m.text); });
     renderDialogue(ctxMsgs.concat(pending));
@@ -317,8 +322,12 @@ import DOMPurify from 'dompurify';
         if (!resp) return;
         setConnected(true);
         var hint = resp.hint || '';
-        if (hint !== lastHint) {
+        var dlg = resp.dialogue || [];
+        var dlgJson = JSON.stringify(dlg);
+        if (hint !== lastHint || dlgJson !== lastDialogueJson) {
           lastHint = hint;
+          lastDialogue = dlg;
+          lastDialogueJson = dlgJson;
           renderContext(hint);
         }
         lastRefresh = Date.now();

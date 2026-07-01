@@ -120,6 +120,10 @@ const (
 // taskIDPattern matches TASK-N references.
 var taskIDPattern = regexp.MustCompile(`TASK-\d+`)
 
+// fencedCodeBlock matches triple-backtick code fences (with optional language tag).
+// [\s\S]*? matches any character including newlines, non-greedy.
+var fencedCodeBlock = regexp.MustCompile("```[\\s\\S]*?```")
+
 // parseSessionSnippet extracts relevant information from JSONL session lines.
 // It returns a formatted snippet with editing, commands, task mentions, and recent prose.
 func parseSessionSnippet(lines []string) string {
@@ -173,7 +177,7 @@ func parseSessionSnippet(lines []string) string {
 						}
 					}
 				case "text":
-					if t := normalizeProse(block.Text); t != "" {
+					if t := normalizeProse(stripCodeFences(block.Text)); t != "" {
 						proseTurns = append(proseTurns, "A: "+t)
 					}
 				}
@@ -182,9 +186,14 @@ func parseSessionSnippet(lines []string) string {
 			// Try as a plain string (user messages)
 			var contentStr string
 			if err := json.Unmarshal(entry.Message.Content, &contentStr); err == nil {
-				// Skip task-notification and system-reminder injected user messages.
-				if strings.HasPrefix(contentStr, "<task-notification") ||
-					strings.HasPrefix(contentStr, "<system-reminder") {
+				// Skip harness-injected XML wrapper turns. All harness tags start with
+				// '<' followed by a lowercase ASCII letter. This filters <task-notification>,
+				// <system-reminder>, <local-command-caveat>, etc.
+				// Known limitation: user messages literally starting with a lowercase
+				// angle-bracket word (e.g. "<enter>") are also filtered. Acceptable for
+				// a voice-first UI where dictated text does not start with raw XML tags.
+				if len(contentStr) >= 2 && contentStr[0] == '<' &&
+					contentStr[1] >= 'a' && contentStr[1] <= 'z' {
 					continue
 				}
 				for _, id := range taskIDPattern.FindAllString(contentStr, -1) {
@@ -202,9 +211,11 @@ func parseSessionSnippet(lines []string) string {
 		proseTurns = proseTurns[len(proseTurns)-maxProseTurns:]
 	}
 	// Cap per turn: prefix ("A: "/"U: ") is 3 chars; cap applies to total including prefix.
+	// Use rune-based slicing to avoid splitting multi-byte UTF-8 sequences (e.g. Chinese).
 	for i, t := range proseTurns {
-		if len(t) > maxProseCharsPerTurn {
-			proseTurns[i] = t[:maxProseCharsPerTurn]
+		r := []rune(t)
+		if len(r) > maxProseCharsPerTurn {
+			proseTurns[i] = string(r[:maxProseCharsPerTurn]) + "…"
 		}
 	}
 	// maxProseCharsPerTurn = 500 means up to 497 chars of content after the 3-char prefix.
@@ -255,12 +266,13 @@ func parseSessionSnippet(lines []string) string {
 		sb.WriteString("## Recent Dialogue\n")
 		total := 0
 		for _, t := range proseTurns {
-			if total+len(t) > maxProseCharsTotal {
+			rc := []rune(t)
+			if total+len(rc) > maxProseCharsTotal {
 				break
 			}
 			sb.WriteString(t)
 			sb.WriteString("\n")
-			total += len(t)
+			total += len(rc)
 		}
 	}
 
@@ -272,6 +284,94 @@ func parseSessionSnippet(lines []string) string {
 func normalizeProse(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	return strings.TrimSpace(s)
+}
+
+// stripCodeFences removes fenced code block markers (``` lines) while keeping
+// the body content. This preserves function names and identifiers for ASR entity
+// injection while removing the visual noise of fence markers.
+func stripCodeFences(s string) string {
+	return fencedCodeBlock.ReplaceAllStringFunc(s, func(block string) string {
+		// Find end of opening fence line (```lang\n)
+		start := strings.Index(block, "\n")
+		// Find start of closing fence
+		end := strings.LastIndex(block, "\n```")
+		if start < 0 || end <= start {
+			return " "
+		}
+		body := strings.TrimSpace(block[start+1 : end])
+		if body == "" {
+			return " "
+		}
+		return " " + body + " "
+	})
+}
+
+// DialogueTurn is a single conversation turn for Web UI display. Unlike the
+// flattened ASR hint (## Recent Dialogue), Text preserves full Markdown fidelity:
+// newlines, blank lines, GFM tables, and code fences. It is serialized to JSON
+// and rendered by the frontend via marked + DOMPurify.
+type DialogueTurn struct {
+	Role string `json:"role"` // "user" or "assistant"
+	Text string `json:"text"` // full Markdown, unmodified
+}
+
+// parseSessionDialogue extracts recent conversation turns with FULL Markdown
+// fidelity for Web UI rendering. It shares the system-turn / harness-XML
+// filtering with parseSessionSnippet but does NOT flatten whitespace, drop
+// blank lines, or strip code fences — the frontend renders this Markdown as-is.
+// Returns nil when there are no displayable turns.
+func parseSessionDialogue(lines []string) []DialogueTurn {
+	var turns []DialogueTurn
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var entry sessionEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.IsCompactSummary || entry.PromptSource == "system" {
+			continue
+		}
+		if entry.Message.Content == nil {
+			continue
+		}
+
+		// Assistant messages: array of content blocks. Keep text blocks verbatim.
+		var contentArr []contentBlock
+		if err := json.Unmarshal(entry.Message.Content, &contentArr); err == nil {
+			for _, block := range contentArr {
+				if block.Type == "text" {
+					if t := strings.TrimSpace(block.Text); t != "" {
+						turns = append(turns, DialogueTurn{Role: "assistant", Text: t})
+					}
+				}
+			}
+			continue
+		}
+
+		// User messages: plain string. Skip harness-injected XML wrapper turns
+		// (same guard as parseSessionSnippet: '<' followed by a lowercase letter).
+		var contentStr string
+		if err := json.Unmarshal(entry.Message.Content, &contentStr); err == nil {
+			if len(contentStr) >= 2 && contentStr[0] == '<' &&
+				contentStr[1] >= 'a' && contentStr[1] <= 'z' {
+				continue
+			}
+			if t := strings.TrimSpace(contentStr); t != "" {
+				turns = append(turns, DialogueTurn{Role: "user", Text: t})
+			}
+		}
+	}
+
+	// Keep only the last maxProseTurns turns (most recent conversation).
+	if len(turns) > maxProseTurns {
+		turns = turns[len(turns)-maxProseTurns:]
+	}
+	return turns
 }
 
 // jsonlPathForSession returns the JSONL path for a given home directory, project root, and session ID.
@@ -300,45 +400,67 @@ type SessionSource struct {
 // Name returns "session".
 func (s *SessionSource) Name() string { return "session" }
 
-// Fetch returns a session context snippet and provenance "session".
-// Priority: jsonlPathFn > ~/.voci/session (or sessionIDFn) > CLAUDE_CODE_SESSION_ID env > graceful degrade.
-// Returns ("", "session") if the session file is unavailable.
-func (s *SessionSource) Fetch(root string) (string, string) {
-	var path string
+// resolveJSONLPath resolves the session JSONL file path using the priority:
+// jsonlPathFn > sessionIDFn/~/.voci/session > CLAUDE_CODE_SESSION_ID env.
+// Returns "" when no session can be resolved.
+func (s *SessionSource) resolveJSONLPath(root string) string {
 	if s.jsonlPathFn != nil {
-		path = s.jsonlPathFn()
-	} else {
-		home, _ := os.UserHomeDir()
-
-		// Determine session ID: use sessionIDFn hook if set, else read ~/.voci/session file
-		var id string
-		if s.sessionIDFn != nil {
-			id = s.sessionIDFn()
-		} else {
-			id = readSessionFile(filepath.Join(home, ".voci", "session"))
-		}
-
-		if id != "" {
-			path = jsonlPathForSession(home, root, id)
-		} else {
-			// Fall back to CLAUDE_CODE_SESSION_ID env var
-			envID := os.Getenv("CLAUDE_CODE_SESSION_ID")
-			if envID == "" {
-				return "", "session"
-			}
-			path = jsonlPathForSession(home, root, envID)
-		}
+		return s.jsonlPathFn()
 	}
+	home, _ := os.UserHomeDir()
 
+	// Determine session ID: use sessionIDFn hook if set, else read ~/.voci/session file.
+	var id string
+	if s.sessionIDFn != nil {
+		id = s.sessionIDFn()
+	} else {
+		id = readSessionFile(filepath.Join(home, ".voci", "session"))
+	}
+	if id == "" {
+		id = os.Getenv("CLAUDE_CODE_SESSION_ID") // fall back to env var
+	}
+	if id == "" {
+		return ""
+	}
+	return jsonlPathForSession(home, root, id)
+}
+
+// tailSessionLines resolves the JSONL path and returns its last N lines.
+// Returns nil when no session is available or the file cannot be read.
+func (s *SessionSource) tailSessionLines(root string) []string {
+	path := s.resolveJSONLPath(root)
+	if path == "" {
+		return nil
+	}
 	n := s.Lines
 	if n == 0 {
 		n = 100
 	}
-
 	lines, err := tailLines(path, n)
 	if err != nil {
+		return nil
+	}
+	return lines
+}
+
+// Fetch returns a session context snippet and provenance "session".
+// Priority: jsonlPathFn > ~/.voci/session (or sessionIDFn) > CLAUDE_CODE_SESSION_ID env > graceful degrade.
+// Returns ("", "session") if the session file is unavailable.
+func (s *SessionSource) Fetch(root string) (string, string) {
+	lines := s.tailSessionLines(root)
+	if lines == nil {
 		return "", "session"
 	}
-
 	return parseSessionSnippet(lines), "session"
+}
+
+// Dialogue returns recent conversation turns with full Markdown fidelity for the
+// Web UI. Uses the same session resolution as Fetch. Returns nil when no session
+// is available.
+func (s *SessionSource) Dialogue(root string) []DialogueTurn {
+	lines := s.tailSessionLines(root)
+	if lines == nil {
+		return nil
+	}
+	return parseSessionDialogue(lines)
 }

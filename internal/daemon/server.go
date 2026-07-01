@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"syscall"
 
+	vocicontext "github.com/yaleh/voci/internal/context"
 	"github.com/yaleh/voci/internal/daemon/auth"
 	"github.com/yaleh/voci/internal/intent/model"
 	"github.com/yaleh/voci/internal/pipeline"
@@ -48,6 +49,10 @@ type Server struct {
 	// HintFn returns the full assembled hint for the context preview panel (/api/context).
 	// If nil, /api/context returns an empty hint.
 	HintFn func(ctx context.Context) (string, error)
+	// DialogueFn returns structured conversation turns for the Web UI, preserving
+	// full Markdown (tables, code blocks, blank lines). If nil, /api/context omits
+	// the "dialogue" field.
+	DialogueFn func(ctx context.Context) ([]vocicontext.DialogueTurn, error)
 	// ChatFn is the LLM chat function.
 	ChatFn pipeline.ChatFn
 	// APIKey is the ASR API key.

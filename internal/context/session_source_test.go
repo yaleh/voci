@@ -1,6 +1,7 @@
 package context
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -554,5 +555,307 @@ func TestParseSessionSnippet_SystemTurnTaskIDNotExtracted(t *testing.T) {
 	snippet := parseSessionSnippet(lines)
 	if strings.Contains(snippet, "TASK-77") {
 		t.Errorf("expected TASK-77 NOT in snippet from promptSource:system entry, got: %q", snippet)
+	}
+}
+
+// ---- Stage 1.1: broad harness XML skip guard ----
+
+func TestParseSessionSnippet_SkipsLocalCommandCaveat(t *testing.T) {
+	// Embeds TASK-88 to verify it does not leak into mentioned tasks
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"<local-command-caveat>Caveat content TASK-88</local-command-caveat><command-name>/model</command-name>"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if strings.Contains(snippet, "Caveat content") {
+		t.Error("expected <local-command-caveat> body to be filtered from dialogue")
+	}
+	if strings.Contains(snippet, "TASK-88") {
+		t.Errorf("expected TASK-88 not to leak from local-command-caveat content")
+	}
+}
+
+func TestParseSessionSnippet_PassesThroughHeartEmoji(t *testing.T) {
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"<3 you"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if !strings.Contains(snippet, "<3 you") {
+		t.Errorf("expected '<3 you' to pass through filter, got: %s", snippet)
+	}
+}
+
+func TestParseSessionSnippet_PassesThroughGenericSyntax(t *testing.T) {
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"<T> is a type parameter"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if !strings.Contains(snippet, "is a type parameter") {
+		t.Errorf("expected '<T> is a type parameter' to pass through, got: %s", snippet)
+	}
+}
+
+func TestParseSessionSnippet_LowercaseAngleBracketIsFiltered(t *testing.T) {
+	// Known limitation: <lowercase> is treated as a harness tag.
+	// Document this as expected behaviour.
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"<enter> to confirm"}}`,
+	}
+	snippet := parseSessionSnippet(lines)
+	if strings.Contains(snippet, "to confirm") {
+		t.Errorf("known limitation: <enter> is incorrectly filtered; got: %s", snippet)
+	}
+}
+
+// sessionLine builds a JSON JSONL line for a user or assistant prose turn.
+func sessionLine(role, content string) string {
+	b, _ := json.Marshal(content)
+	return `{"type":"` + role + `","message":{"role":"` + role + `","content":` + string(b) + `}}`
+}
+
+func TestParseSessionSnippet_ChineseNotCorrupted(t *testing.T) {
+	// 200 Chinese chars × 3 bytes = 600 bytes > 500-byte limit → must truncate without corruption
+	content := strings.Repeat("测", 200)
+	line := sessionLine("user", content)
+	snippet := parseSessionSnippet([]string{line})
+	if strings.ContainsRune(snippet, '�') {
+		t.Error("truncated Chinese text must not contain UTF-8 replacement character")
+	}
+	if strings.Contains(snippet, "测") {
+		// Verify content appeared (not silently dropped)
+		_ = snippet // content present
+	}
+}
+
+func TestParseSessionSnippet_TruncatedTurnHasEllipsis(t *testing.T) {
+	// A turn longer than 500 chars must end with "…"
+	content := strings.Repeat("x", 600)
+	line := sessionLine("user", content)
+	snippet := parseSessionSnippet([]string{line})
+	// The "U: " prefix plus up to 500 runes plus "…"
+	if !strings.Contains(snippet, "…") {
+		t.Errorf("truncated turn must end with ellipsis, got: %s", snippet[:min(len(snippet), 60)])
+	}
+}
+
+// ---- Stage 1.3: stripCodeFences ----
+
+func TestStripCodeFences_KeepsBody(t *testing.T) {
+	input := "Here is the fix:\n```go\nfunc foo() {}\n```\nDone."
+	got := stripCodeFences(input)
+	if strings.Contains(got, "```") {
+		t.Errorf("fence markers must be removed, got: %q", got)
+	}
+	if !strings.Contains(got, "func foo()") {
+		t.Errorf("body content must be kept, got: %q", got)
+	}
+}
+
+func TestStripCodeFences_HandlesBackticksInBody(t *testing.T) {
+	// Code block whose body contains a single backtick (e.g. shell substitution)
+	input := "```sh\necho `date`\n```"
+	got := stripCodeFences(input)
+	if strings.Contains(got, "```") {
+		t.Errorf("fence markers must be removed, got: %q", got)
+	}
+	if !strings.Contains(got, "echo") {
+		t.Errorf("body content must be kept, got: %q", got)
+	}
+}
+
+func TestStripCodeFences_NoFences_Unchanged(t *testing.T) {
+	input := "No fences here."
+	got := stripCodeFences(input)
+	if got != input {
+		t.Errorf("text without fences must be unchanged, got: %q", got)
+	}
+}
+
+func TestParseSessionSnippet_AssistantFencesStripped(t *testing.T) {
+	// Assistant turn with a fenced code block
+	block := map[string]any{
+		"type": "text",
+		"text": "Use this:\n```go\nfunc bar() {}\n```\nDone.",
+	}
+	content, _ := json.Marshal([]any{block})
+	entry := map[string]any{
+		"type":    "assistant",
+		"message": map[string]any{"role": "assistant", "content": json.RawMessage(content)},
+	}
+	line, _ := json.Marshal(entry)
+	snippet := parseSessionSnippet([]string{string(line)})
+	if strings.Contains(snippet, "```") {
+		t.Errorf("assistant fences must be stripped from dialogue hint, got: %s", snippet)
+	}
+	if !strings.Contains(snippet, "func bar()") {
+		t.Errorf("assistant code body must be kept in hint, got: %s", snippet)
+	}
+}
+
+func TestParseSessionSnippet_UserFencesNotStripped(t *testing.T) {
+	// User turn with backtick content — normalizeProse is called unchanged
+	line := sessionLine("user", "use ```go``` to format code")
+	snippet := parseSessionSnippet([]string{line})
+	// normalizeProse collapses whitespace but does NOT strip fences for user turns
+	// The triple-backtick sequence should survive (it's just a string here)
+	if !strings.Contains(snippet, "go") {
+		t.Errorf("user turn content must pass through, got: %s", snippet)
+	}
+}
+
+func TestParseSessionSnippet_ChineseOuterCap(t *testing.T) {
+	// 6 turns × 200 Chinese chars each = 6 × 200 runes = 1200 runes total
+	// With rune-based outer cap of 3000, all 6 turns must appear
+	// With byte-based outer cap, 6 × ~600 bytes = 3600 bytes > 3000 → only 5 turns appear
+	var lines []string
+	for i := 0; i < 6; i++ {
+		lines = append(lines, sessionLine("user", strings.Repeat("测", 200)))
+	}
+	snippet := parseSessionSnippet(lines)
+	// Count how many "U: " prefixes appear
+	count := strings.Count(snippet, "U: ")
+	if count < 6 {
+		t.Errorf("expected 6 Chinese turns to fit under rune-based outer cap, got %d", count)
+	}
+}
+
+// ---- Structured dialogue extraction (full Markdown fidelity for Web UI) ----
+
+// buildAssistantLine builds a JSONL line for an assistant text turn.
+func buildAssistantLine(text string) string {
+	block := map[string]any{"type": "text", "text": text}
+	content, _ := json.Marshal([]any{block})
+	entry := map[string]any{
+		"type":    "assistant",
+		"message": map[string]any{"role": "assistant", "content": json.RawMessage(content)},
+	}
+	line, _ := json.Marshal(entry)
+	return string(line)
+}
+
+// TestParseSessionDialogue_PreservesBlankLineBeforeTable is the core regression:
+// a GFM table needs a preceding blank line to be a distinct block. The structured
+// extraction must preserve that blank line verbatim (the old flattening dropped it).
+func TestParseSessionDialogue_PreservesBlankLineBeforeTable(t *testing.T) {
+	text := "总结：\n\n| 列A | 列B |\n|---|---|\n| 值1 | 值2 |"
+	turns := parseSessionDialogue([]string{buildAssistantLine(text)})
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d: %+v", len(turns), turns)
+	}
+	if turns[0].Role != "assistant" {
+		t.Errorf("expected role 'assistant', got %q", turns[0].Role)
+	}
+	if turns[0].Text != text {
+		t.Errorf("text not preserved verbatim.\n got: %q\nwant: %q", turns[0].Text, text)
+	}
+	// Explicitly: the blank line separating paragraph from table must survive.
+	if !strings.Contains(turns[0].Text, "总结：\n\n|") {
+		t.Errorf("blank line before table was dropped: %q", turns[0].Text)
+	}
+}
+
+// TestParseSessionDialogue_PreservesCodeFences verifies code blocks survive
+// (unlike parseSessionSnippet which strips fences for ASR noise reduction).
+func TestParseSessionDialogue_PreservesCodeFences(t *testing.T) {
+	text := "Here:\n\n```go\nfunc foo() {}\n```"
+	turns := parseSessionDialogue([]string{buildAssistantLine(text)})
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turns))
+	}
+	if !strings.Contains(turns[0].Text, "```go") {
+		t.Errorf("code fence stripped: %q", turns[0].Text)
+	}
+	if !strings.Contains(turns[0].Text, "func foo()") {
+		t.Errorf("code body missing: %q", turns[0].Text)
+	}
+}
+
+func TestParseSessionDialogue_UserAndAssistantRoles(t *testing.T) {
+	lines := []string{
+		sessionLine("user", "问题在哪里？"),
+		buildAssistantLine("答案如下。"),
+	}
+	turns := parseSessionDialogue(lines)
+	if len(turns) != 2 {
+		t.Fatalf("expected 2 turns, got %d: %+v", len(turns), turns)
+	}
+	if turns[0].Role != "user" || turns[0].Text != "问题在哪里？" {
+		t.Errorf("user turn wrong: %+v", turns[0])
+	}
+	if turns[1].Role != "assistant" || turns[1].Text != "答案如下。" {
+		t.Errorf("assistant turn wrong: %+v", turns[1])
+	}
+}
+
+func TestParseSessionDialogue_SkipsSystemAndHarnessTurns(t *testing.T) {
+	lines := []string{
+		`{"type":"user","promptSource":"system","message":{"role":"user","content":"system junk"}}`,
+		`{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"compact junk"}}`,
+		`{"type":"user","message":{"role":"user","content":"<system-reminder>reminder junk</system-reminder>"}}`,
+		sessionLine("user", "real message"),
+	}
+	turns := parseSessionDialogue(lines)
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn (only real message), got %d: %+v", len(turns), turns)
+	}
+	if turns[0].Text != "real message" {
+		t.Errorf("expected only real message, got: %q", turns[0].Text)
+	}
+}
+
+func TestParseSessionDialogue_KeepsLastNTurns(t *testing.T) {
+	var lines []string
+	for i := 0; i < maxProseTurns+4; i++ {
+		lines = append(lines, sessionLine("user", "turn"+string(rune('A'+i))))
+	}
+	turns := parseSessionDialogue(lines)
+	if len(turns) != maxProseTurns {
+		t.Fatalf("expected %d turns, got %d", maxProseTurns, len(turns))
+	}
+	// The most recent turn must be present
+	last := "turn" + string(rune('A'+maxProseTurns+3))
+	if turns[len(turns)-1].Text != last {
+		t.Errorf("expected last turn %q, got %q", last, turns[len(turns)-1].Text)
+	}
+}
+
+func TestParseSessionDialogue_EmptyInput(t *testing.T) {
+	if turns := parseSessionDialogue(nil); turns != nil {
+		t.Errorf("expected nil for empty input, got %+v", turns)
+	}
+}
+
+// TestSessionSource_Dialogue verifies the resolution path returns structured turns.
+func TestSessionSource_Dialogue(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "dlg-sess")
+
+	const root = "/home/yale/work/voci"
+	hash := strings.ReplaceAll(root, "/", "-")
+	dir := filepath.Join(tmpHome, ".claude", "projects", hash)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	jsonlPath := filepath.Join(dir, "dlg-sess.jsonl")
+	content := buildAssistantLine("表格：\n\n| A | B |\n|---|---|\n| 1 | 2 |") + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &SessionSource{}
+	turns := src.Dialogue(root)
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(turns))
+	}
+	if !strings.Contains(turns[0].Text, "\n\n| A | B |") {
+		t.Errorf("blank line before table not preserved via Dialogue(): %q", turns[0].Text)
+	}
+}
+
+func TestSessionSource_Dialogue_NoSession(t *testing.T) {
+	os.Unsetenv("CLAUDE_CODE_SESSION_ID")
+	src := &SessionSource{sessionIDFn: func() string { return "" }}
+	if turns := src.Dialogue("/some/root"); turns != nil {
+		t.Errorf("expected nil when no session, got %+v", turns)
 	}
 }

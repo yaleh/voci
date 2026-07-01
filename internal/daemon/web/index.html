@@ -57,6 +57,60 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   transition: border-color 0.2s, color 0.2s;
 }
 #clear-btn:hover { border-color: #2a3a50; color: #7a9aba; }
+
+/* Rendered Markdown (assistant messages) — GFM tables, code blocks, lists */
+#voci-dialogue table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+  max-width: 100%;
+}
+#voci-dialogue th,
+#voci-dialogue td {
+  border: 1px solid #1c2740;
+  padding: 3px 8px;
+  text-align: left;
+}
+#voci-dialogue th {
+  background: #0d1424;
+  color: #8aa4c8;
+  font-weight: 600;
+}
+#voci-dialogue pre {
+  background: #0b0f1a;
+  border: 1px solid #131c2e;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  overflow-x: auto;
+}
+#voci-dialogue pre code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: #c8d4e8;
+  background: none;
+  padding: 0;
+}
+#voci-dialogue code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  background: #131c2e;
+  color: #a8c0e0;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+#voci-dialogue ul,
+#voci-dialogue ol { margin: 4px 0; padding-left: 20px; }
+#voci-dialogue li { margin: 2px 0; }
+#voci-dialogue p { margin: 4px 0; }
+#voci-dialogue p:first-child { margin-top: 0; }
+#voci-dialogue p:last-child { margin-bottom: 0; }
+#voci-dialogue blockquote {
+  border-left: 2px solid #2a3a50;
+  margin: 4px 0;
+  padding-left: 10px;
+  color: #8296b4;
+}
 </style>
 </head>
 <body>

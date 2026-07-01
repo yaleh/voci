@@ -1,10 +1,10 @@
 ---
 id: TASK-72
 title: Web UI 引入 esbuild 构建流水线以支持完整 GFM Markdown 渲染
-status: 'Basic: Backlog'
+status: 'Basic: In Progress'
 assignee: []
 created_date: '2026-07-01 06:46'
-updated_date: '2026-07-01 06:57'
+updated_date: '2026-07-01 07:15'
 labels:
   - 'kind:basic'
 dependencies: []
@@ -203,6 +203,8 @@ premise-ledger:
 GCL-self-report: E=11 C=9 H=0
 
 intra-rater-variance check (sample triggered by TASK-72 hash): second independent pass completed. pass1 E=11 C=9 H=0 GCL=20 | pass2 E=11 C=9 H=0 GCL=20. Variance=0 criteria changed. Verdict unchanged: APPROVED.
+
+claimed: 2026-07-01T07:15:44Z
 <!-- SECTION:NOTES:END -->
 
 ## Definition of Done

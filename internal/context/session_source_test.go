@@ -737,7 +737,7 @@ func buildAssistantLine(text string) string {
 // extraction must preserve that blank line verbatim (the old flattening dropped it).
 func TestParseSessionDialogue_PreservesBlankLineBeforeTable(t *testing.T) {
 	text := "总结：\n\n| 列A | 列B |\n|---|---|\n| 值1 | 值2 |"
-	turns := (&SessionSource{}).parseSessionDialogue([]string{buildAssistantLine(text)})
+	turns := (&SessionSource{}).parseSessionDialogue([]string{buildAssistantLine(text)}, -1)
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d: %+v", len(turns), turns)
 	}
@@ -757,7 +757,7 @@ func TestParseSessionDialogue_PreservesBlankLineBeforeTable(t *testing.T) {
 // (unlike parseSessionSnippet which strips fences for ASR noise reduction).
 func TestParseSessionDialogue_PreservesCodeFences(t *testing.T) {
 	text := "Here:\n\n```go\nfunc foo() {}\n```"
-	turns := (&SessionSource{}).parseSessionDialogue([]string{buildAssistantLine(text)})
+	turns := (&SessionSource{}).parseSessionDialogue([]string{buildAssistantLine(text)}, -1)
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn, got %d", len(turns))
 	}
@@ -774,7 +774,7 @@ func TestParseSessionDialogue_UserAndAssistantRoles(t *testing.T) {
 		sessionLine("user", "问题在哪里？"),
 		buildAssistantLine("答案如下。"),
 	}
-	turns := (&SessionSource{}).parseSessionDialogue(lines)
+	turns := (&SessionSource{}).parseSessionDialogue(lines, -1)
 	if len(turns) != 2 {
 		t.Fatalf("expected 2 turns, got %d: %+v", len(turns), turns)
 	}
@@ -793,7 +793,7 @@ func TestParseSessionDialogue_SkipsSystemAndHarnessTurns(t *testing.T) {
 		`{"type":"user","message":{"role":"user","content":"<system-reminder>reminder junk</system-reminder>"}}`,
 		sessionLine("user", "real message"),
 	}
-	turns := (&SessionSource{}).parseSessionDialogue(lines)
+	turns := (&SessionSource{}).parseSessionDialogue(lines, -1)
 	if len(turns) != 1 {
 		t.Fatalf("expected 1 turn (only real message), got %d: %+v", len(turns), turns)
 	}
@@ -807,7 +807,7 @@ func TestParseSessionDialogue_KeepsLastNTurns(t *testing.T) {
 	for i := 0; i < defaultMaxProseTurns+4; i++ {
 		lines = append(lines, sessionLine("user", "turn"+string(rune('A'+i))))
 	}
-	turns := (&SessionSource{}).parseSessionDialogue(lines)
+	turns := (&SessionSource{}).parseSessionDialogue(lines, defaultMaxProseTurns)
 	if len(turns) != defaultMaxProseTurns {
 		t.Fatalf("expected %d turns, got %d", defaultMaxProseTurns, len(turns))
 	}
@@ -819,7 +819,7 @@ func TestParseSessionDialogue_KeepsLastNTurns(t *testing.T) {
 }
 
 func TestParseSessionDialogue_EmptyInput(t *testing.T) {
-	if turns := (&SessionSource{}).parseSessionDialogue(nil); turns != nil {
+	if turns := (&SessionSource{}).parseSessionDialogue(nil, -1); turns != nil {
 		t.Errorf("expected nil for empty input, got %+v", turns)
 	}
 }
@@ -890,5 +890,83 @@ func TestResolveJSONLPath_NoSession(t *testing.T) {
 	src := &SessionSource{sessionIDFn: func() string { return "" }}
 	if got := src.ResolveJSONLPath("/root"); got != "" {
 		t.Errorf("expected empty string when no session, got %q", got)
+	}
+}
+
+// ---- TASK-76: Dialogue reads full file, not just tail ----
+
+// TestDialogue_ReadsFullFileNotJustTail verifies that Dialogue() reads the
+// entire JSONL file, not just the last 100 lines. Prose turns placed in the
+// first 50 lines of a >100-line file must be returned.
+func TestDialogue_ReadsFullFileNotJustTail(t *testing.T) {
+	// Build a JSONL with >100 total lines. Prose turns go in lines 1-50
+	// (well outside a tail-100 window). Fill the rest with tool_use noise.
+	var sb strings.Builder
+	for i := 0; i < 50; i++ {
+		sb.WriteString(sessionLine("user", "early-turn-"+string(rune('A'+i%26))))
+		sb.WriteString("\n")
+	}
+	// Add 60 noise lines (tool_use only, no text blocks) to push total past 100
+	for i := 0; i < 60; i++ {
+		entry := map[string]any{
+			"type":    "assistant",
+			"message": map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "name": "Bash", "input": map[string]string{"command": "echo noise" + string(rune('0'+i%10))}}}},
+		}
+		line, _ := json.Marshal(entry)
+		sb.WriteString(string(line))
+		sb.WriteString("\n")
+	}
+
+	tmpDir := t.TempDir()
+	jsonlPath := filepath.Join(tmpDir, "long.jsonl")
+	if err := os.WriteFile(jsonlPath, []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &SessionSource{
+		jsonlPathFn: func() string { return jsonlPath },
+	}
+	turns := src.Dialogue("/some/root")
+	// All 50 early turns must be present
+	if len(turns) < 50 {
+		t.Fatalf("expected at least 50 turns from full-file read, got %d", len(turns))
+	}
+	// Verify specific early markers
+	foundEarly := false
+	for _, turn := range turns {
+		if strings.Contains(turn.Text, "early-turn-A") {
+			foundEarly = true
+			break
+		}
+	}
+	if !foundEarly {
+		t.Error("early-turn-A not found — Dialogue() is not reading the full file")
+	}
+}
+
+// TestDialogue_NoProseTurnCap verifies that Dialogue() returns ALL prose
+// turns even when MaxProseTurns is set to a small value (the cap is only
+// for Fetch()/ASR path, not for the browser).
+func TestDialogue_NoProseTurnCap(t *testing.T) {
+	var sb strings.Builder
+	for i := 0; i < 11; i++ {
+		sb.WriteString(sessionLine("user", "dialogue-turn-"+string(rune('A'+i))))
+		sb.WriteString("\n")
+	}
+
+	tmpDir := t.TempDir()
+	jsonlPath := filepath.Join(tmpDir, "caps.jsonl")
+	if err := os.WriteFile(jsonlPath, []byte(sb.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// MaxProseTurns=6 should NOT affect Dialogue() output
+	src := &SessionSource{
+		jsonlPathFn:   func() string { return jsonlPath },
+		MaxProseTurns: 6,
+	}
+	turns := src.Dialogue("/some/root")
+	if len(turns) != 11 {
+		t.Fatalf("expected 11 turns (no cap), got %d", len(turns))
 	}
 }

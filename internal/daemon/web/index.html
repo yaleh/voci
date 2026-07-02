@@ -128,7 +128,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 
   <!-- CONTEXT STRIP -->
   <div style="display: flex; align-items: center; border-bottom: 1px solid #0e1220; flex-shrink: 0; background: #07090d;">
-    <div id="task-pills" style="display: flex; align-items: center; gap: 6px; padding: 6px 15px; flex: 1; overflow: hidden; min-height: 29px;"></div>
+    <div style="flex: 1; min-height: 29px;"></div>
     <button id="entities-toggle" style="display: flex; align-items: center; gap: 5px; padding: 6px 14px 6px 10px; border-left: 1px solid #0e1220; color: #4a6080; font-size: 9.5px; font-family: 'JetBrains Mono', monospace; background: none; border-top: none; border-right: none; border-bottom: none; cursor: pointer; flex-shrink: 0; white-space: nowrap;">
       <span id="entities-count">0 entities</span>
       <span id="context-chevron" style="font-size: 8px;">▸</span>
@@ -137,15 +137,9 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 
   <!-- CONTEXT PANEL -->
   <div id="context-panel" style="display: none; border-bottom: 1px solid #0e1220; flex-shrink: 0; background: #0a0c14; overflow: hidden;">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; padding: 8px 15px 9px;">
-      <div style="border-right: 1px solid #0e1220; padding-right: 12px;">
-        <div style="font-size: 9px; color: #3d5068; letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 5px;">Entities</div>
-        <div id="entities-list" style="display: flex; flex-direction: column; gap: 2px;"></div>
-      </div>
-      <div style="padding-left: 12px;">
-        <div style="font-size: 9px; color: #3d5068; letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 5px;">Tasks</div>
-        <div id="tasks-list" style="display: flex; flex-direction: column; gap: 3px;"></div>
-      </div>
+    <div style="padding: 8px 15px 9px;">
+      <div style="font-size: 9px; color: #3d5068; letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 5px;">Entities</div>
+      <div id="entities-list" style="display: flex; flex-direction: column; gap: 2px;"></div>
     </div>
   </div>
 

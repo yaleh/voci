@@ -94,13 +94,23 @@ func (s *DynamicEntitiesSource) Fetch(root string) (string, string) {
 		text = s.TextFn()
 	} else {
 		raw, _ := (&SessionSource{}).Fetch(root)
-		// Strip everything before and including "## Recent Dialogue" header, keep prose
-		if idx := strings.Index(raw, "## Recent Dialogue\n"); idx >= 0 {
-			text = raw[idx+len("## Recent Dialogue\n"):]
-		} else if idx := strings.Index(raw, "\n"); idx >= 0 {
-			text = raw[idx+1:]
-		} else {
-			text = raw
+		// Extract "## Claude Code Session" section (structured session data).
+		if idx := strings.Index(raw, "## Claude Code Session\n"); idx >= 0 {
+			body := raw[idx+len("## Claude Code Session\n"):]
+			// Stop at next "## " header or end of string.
+			if next := strings.Index(body, "\n## "); next >= 0 {
+				text = body[:next]
+			} else {
+				text = body
+			}
+		}
+		// Also append git log lines for additional code tokens.
+		gitLog := DefaultGitRunner(root)
+		if gitLog != "" {
+			if text != "" {
+				text += "\n"
+			}
+			text += gitLog
 		}
 	}
 
@@ -108,38 +118,14 @@ func (s *DynamicEntitiesSource) Fetch(root string) (string, string) {
 		return "", "dynamic_entities"
 	}
 
-	// Get static entity values to suppress (both keys and values from buildKnownEntities)
-	staticTerms := make(map[string]bool)
-	for _, line := range strings.Split(buildKnownEntities(nil), "\n") {
-		// lines are like "- vocal: voci" or "- run hinted: RunHinted"
-		// strip leading "- "
-		line = strings.TrimPrefix(line, "- ")
-		if parts := strings.SplitN(line, ": ", 2); len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			val := strings.TrimSpace(parts[1])
-			// Add individual words from key and the value itself
-			for _, w := range strings.Fields(key) {
-				staticTerms[w] = true
-			}
-			staticTerms[val] = true
-		}
-	}
-
 	tokens := s.extractCodeTokens(text)
-	var dynamic []string
-	for _, t := range tokens {
-		if !staticTerms[t] {
-			dynamic = append(dynamic, t)
-		}
-	}
-
-	if len(dynamic) == 0 {
+	if len(tokens) == 0 {
 		return "", "dynamic_entities"
 	}
 
 	var sb strings.Builder
 	sb.WriteString("## Known Entities (dynamic)\n")
-	for _, t := range dynamic {
+	for _, t := range tokens {
 		fmt.Fprintf(&sb, "%s: %s\n", t, t)
 	}
 	return sb.String(), "dynamic_entities"

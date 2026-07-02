@@ -119,9 +119,6 @@ import DOMPurify from 'dompurify';
   var PARAM_DESCRIPTORS = {
     contextPollMs:   { default: 5000, min: 500,  max: 60000 },
     statusHideMs:    { default: 2000, min: 100,  max: 30000 },
-    entitySlice:     { default: 6,    min: 1,    max: 100   },
-    taskPillSlice:   { default: 4,    min: 1,    max: 100   },
-    taskListSlice:   { default: 6,    min: 1,    max: 100   },
     localMsgCap:     { default: 40,   min: 1,    max: 1000  },
     postEmitDelayMs: { default: 600,  min: 100,  max: 30000 },
   };
@@ -180,19 +177,16 @@ import DOMPurify from 'dompurify';
   var lastDialogue = [];   // structured dialogue turns from /api/context (full Markdown)
   var lastDialogueJson = '';  // dedup guard for dialogue changes
   var lastDialogueHtml = '';
-  var lastPillsHtml = '';
   var localMessages = [];
 
   function $(id) { return document.getElementById(id); }
 
   var refreshBtn       = $('refresh-btn');
   var connDot          = $('conn-dot');
-  var taskPills        = $('task-pills');
   var entitiesCount    = $('entities-count');
   var contextChevron   = $('context-chevron');
   var contextPanel     = $('context-panel');
   var entitiesList     = $('entities-list');
-  var tasksList        = $('tasks-list');
   var dialogueFeed     = $('voci-dialogue');
   var textInputWrap    = $('text-input-wrap');
   var recordingWrap    = $('recording-wrap');
@@ -271,8 +265,6 @@ import DOMPurify from 'dompurify';
 
   // ── Context ──────────────────────────────────────────────
 
-  var TASK_COLORS = ['#22c55e', '#f97316', '#a855f7', '#5b9cf6', '#06b6d4', '#ec4899'];
-
   function extractSection(hint, heading) {
     var idx = hint.indexOf(heading);
     if (idx < 0) return '';
@@ -283,14 +275,12 @@ import DOMPurify from 'dompurify';
 
   function renderContext(hint) {
     var entSection  = extractSection(hint, '## Known Entities');
-    var taskSection = extractSection(hint, '## Active Tasks');
 
     var eLines = entSection  ? entSection.split('\n').filter(Boolean)  : [];
-    var tLines = taskSection ? taskSection.split('\n').filter(Boolean) : [];
-
+    
     entitiesCount.textContent = eLines.length + ' entities';
 
-    entitiesList.innerHTML = eLines.slice(0, C_CONFIG.entitySlice).map(function (line) {
+    entitiesList.innerHTML = eLines.map(function (line) {
       var m = line.match(/"([^"]+)"\s*[-→>]+\s*(.+)/);
       if (m) {
         return '<div style="display:flex;align-items:baseline;gap:4px">' +
@@ -302,28 +292,6 @@ import DOMPurify from 'dompurify';
       return '<div style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080">' + esc(line) + '</div>';
     }).join('');
 
-    var newPillsHtml = tLines.slice(0, C_CONFIG.taskPillSlice).map(function (line, i) {
-      var m = line.match(/TASK-\d+/i);
-      var id = m ? m[0].toUpperCase() : 'T' + (i + 1);
-      var c  = TASK_COLORS[i % TASK_COLORS.length];
-      return '<div style="display:flex;align-items:center;gap:3px;flex-shrink:0">' +
-        '<div style="width:5px;height:5px;border-radius:50%;background:' + c + ';box-shadow:0 0 4px ' + c + '55"></div>' +
-        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#4a6080">' + esc(id) + '</span>' +
-        '</div>';
-    }).join('<span style="color:#283848;font-size:9px">·</span>');
-    if (newPillsHtml !== lastPillsHtml) { lastPillsHtml = newPillsHtml; taskPills.innerHTML = newPillsHtml; }
-
-    tasksList.innerHTML = tLines.slice(0, C_CONFIG.taskListSlice).map(function (line, i) {
-      var m = line.match(/TASK-\d+/i);
-      var id   = m ? m[0].toUpperCase() : 'T' + (i + 1);
-      var c    = TASK_COLORS[i % TASK_COLORS.length];
-      var desc = line.replace(/^[-*]\s*/, '').replace(/TASK-\d+\s*:?\s*/i, '').trim();
-      return '<div style="display:flex;align-items:center;gap:5px">' +
-        '<div style="width:4px;height:4px;border-radius:50%;background:' + c + ';flex-shrink:0"></div>' +
-        '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#5a8aba;flex-shrink:0">' + esc(id) + '</span>' +
-        '<span style="font-size:9.5px;color:#3a5070;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(desc) + '</span>' +
-        '</div>';
-    }).join('');
 
     var now  = new Date();
     var time = pad(now.getHours()) + ':' + pad(now.getMinutes());

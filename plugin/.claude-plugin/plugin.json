@@ -6,8 +6,8 @@
     "name": "Yale Huang"
   },
   "license": "MIT",
-  "homepage": "https://github.com/<owner>/voci",
-  "repository": "https://github.com/<owner>/voci",
+  "homepage": "https://github.com/yaleh/voci",
+  "repository": "https://github.com/yaleh/voci",
   "commands": [
     "./skills/voci-listen/SKILL.md"
   ]

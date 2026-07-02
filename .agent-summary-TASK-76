@@ -1,0 +1,8 @@
+Phase A start: writing tests first (TDD) 2026-07-02T10:54:16Z
+Phase A ✓ $(date -u +%Y-%m-%dT%H:%M:%SZ)
+DoD #1: PASS — go test ./internal/context/... -run TestDialogue
+DoD #2: PASS — go test ./internal/context/... -run TestParseSessionDialogue
+DoD #3: KNOWN-DISCREPANCY — grep finds tailSessionLines in session_source.go; method still required by Fetch() which the plan constrains as unchanged. Dialogue() no longer calls tailSessionLines (uses allSessionLines instead).
+DoD #4: PASS (context only) — go test ./... : 8 daemon tests fail with "open web/recorder.bundle.js: file does not exist" (pre-existing worktree issue, web/ dir absent, unrelated to context changes). All context tests pass.
+DoD #5: PASS — go test ./internal/context/... -run TestDialogue_ReadsFullFileNotJustTail -v
+DoD #6: PASS — go test ./internal/context/... -run TestDialogue_NoProseTurnCap -v

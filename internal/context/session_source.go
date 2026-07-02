@@ -329,16 +329,13 @@ type DialogueTurn struct {
 	Text string `json:"text"` // full Markdown, unmodified
 }
 
-// parseSessionDialogue extracts recent conversation turns with FULL Markdown
+// parseSessionDialogue extracts conversation turns with full Markdown
 // fidelity for Web UI rendering. It shares the system-turn / harness-XML
 // filtering with parseSessionSnippet but does NOT flatten whitespace, drop
 // blank lines, or strip code fences — the frontend renders this Markdown as-is.
-// Returns nil when there are no displayable turns.
-func (s *SessionSource) parseSessionDialogue(lines []string) []DialogueTurn {
-	maxProseTurns := s.MaxProseTurns
-	if maxProseTurns == 0 {
-		maxProseTurns = defaultMaxProseTurns
-	}
+// maxTurns controls how many of the most recent turns are kept; pass -1 for
+// no limit (Dialogue path). Returns nil when there are no displayable turns.
+func (s *SessionSource) parseSessionDialogue(lines []string, maxTurns int) []DialogueTurn {
 	var turns []DialogueTurn
 
 	for _, line := range lines {
@@ -385,9 +382,10 @@ func (s *SessionSource) parseSessionDialogue(lines []string) []DialogueTurn {
 		}
 	}
 
-	// Keep only the last maxProseTurns turns (most recent conversation).
-	if len(turns) > maxProseTurns {
-		turns = turns[len(turns)-maxProseTurns:]
+	// Keep only the last maxTurns turns (most recent conversation).
+	// maxTurns < 0 means no limit (Dialogue path for the browser).
+	if maxTurns >= 0 && len(turns) > maxTurns {
+		turns = turns[len(turns)-maxTurns:]
 	}
 	return turns
 }
@@ -452,6 +450,33 @@ func (s *SessionSource) resolveJSONLPath(root string) string {
 	return jsonlPathForSession(home, root, id)
 }
 
+// allSessionLines reads the complete JSONL session file into memory and
+// returns all non-empty lines. Used by Dialogue() to give the browser the
+// full conversation history unconditionally.
+// Returns nil when no session is available or the file cannot be read.
+func (s *SessionSource) allSessionLines(root string) []string {
+	path := s.resolveJSONLPath(root)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	content := strings.TrimRight(string(data), "\n")
+	if content == "" {
+		return nil
+	}
+	all := strings.Split(content, "\n")
+	var result []string
+	for _, l := range all {
+		if l != "" {
+			result = append(result, l)
+		}
+	}
+	return result
+}
+
 // tailSessionLines resolves the JSONL path and returns its last N lines.
 // Returns nil when no session is available or the file cannot be read.
 func (s *SessionSource) tailSessionLines(root string) []string {
@@ -481,13 +506,14 @@ func (s *SessionSource) Fetch(root string) (string, string) {
 	return s.parseSessionSnippet(lines), "session"
 }
 
-// Dialogue returns recent conversation turns with full Markdown fidelity for the
-// Web UI. Uses the same session resolution as Fetch. Returns nil when no session
-// is available.
+// Dialogue returns all conversation turns with full Markdown fidelity for the
+// Web UI. Unlike Fetch (which reads only the tail and caps prose turns for ASR
+// token budget), Dialogue reads the complete JSONL file with no turn limit.
+// Returns nil when no session is available.
 func (s *SessionSource) Dialogue(root string) []DialogueTurn {
-	lines := s.tailSessionLines(root)
+	lines := s.allSessionLines(root)
 	if lines == nil {
 		return nil
 	}
-	return s.parseSessionDialogue(lines)
+	return s.parseSessionDialogue(lines, -1)
 }

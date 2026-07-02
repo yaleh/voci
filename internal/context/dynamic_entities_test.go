@@ -100,15 +100,34 @@ func TestDynamicEntitiesSource_NilTextFn_NoSession(t *testing.T) {
 	}
 }
 
-func TestDynamicEntitiesSource_DeduplicatesStaticEntities(t *testing.T) {
-	// "voci", "RunHinted" are in the static buildKnownEntities output
-	s := &DynamicEntitiesSource{TextFn: func() string { return "voci RunHinted BuildContext" }}
+func TestDynamicEntitiesSource_NoDupesInOutput(t *testing.T) {
+	s := &DynamicEntitiesSource{TextFn: func() string { return "voci voci voci" }}
 	content, _ := s.Fetch("/tmp")
-	if strings.Contains(content, "voci: voci") {
-		t.Error("should not include static entity 'voci'")
+	count := strings.Count(content, "voci: voci")
+	if count > 1 {
+		t.Errorf("expected at most 1 occurrence, got %d", count)
 	}
-	if strings.Contains(content, "RunHinted: RunHinted") {
-		t.Error("should not include static entity 'RunHinted'")
+}
+
+func TestDynamicEntitiesSource_NilTextFn_ExtractsFromStructuredSession(t *testing.T) {
+	s := &DynamicEntitiesSource{TextFn: func() string {
+		return "## Claude Code Session\n- editing: internal/context/builder.go\n- ran: go test ./...\n"
+	}}
+	content, _ := s.Fetch("/tmp")
+	// reFileExt should match builder.go
+	if !strings.Contains(content, "builder.go") {
+		t.Errorf("expected builder.go in output, got: %q", content)
+	}
+}
+
+func TestDynamicEntitiesSource_NilTextFn_ExtractsFromGitLog(t *testing.T) {
+	s := &DynamicEntitiesSource{TextFn: func() string {
+		return "feat: add DynamicEntitiesSource refactor\n"
+	}}
+	content, _ := s.Fetch("/tmp")
+	// PascalCase should match DynamicEntitiesSource
+	if !strings.Contains(content, "DynamicEntitiesSource: DynamicEntitiesSource") {
+		t.Errorf("expected DynamicEntitiesSource: DynamicEntitiesSource in output, got: %q", content)
 	}
 }
 

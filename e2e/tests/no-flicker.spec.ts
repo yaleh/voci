@@ -43,30 +43,6 @@ test.describe('No-flicker: dialogue feed does not mutate on unchanged messages',
     // Without the fix: 2+ mutations (one per 5 s poll cycle).
     expect(mutationCount).toBe(0);
   });
-
-  test('taskPills does not flash on every context poll', async ({ page }) => {
-    await page.goto('/');
-    await page.waitForLoadState('networkidle');
-
-    const mutationCount = await page.evaluate(() => {
-      return new Promise<number>((resolve) => {
-        const pills = document.getElementById('task-pills');
-        if (!pills) { resolve(-1); return; }
-
-        setTimeout(() => {
-          let count = 0;
-          const obs = new MutationObserver((mutations) => {
-            count += mutations.filter(m => m.type === 'childList').length;
-          });
-          obs.observe(pills, { childList: true, subtree: false });
-
-          setTimeout(() => { obs.disconnect(); resolve(count); }, 12_000);
-        }, 3_000);
-      });
-    });
-
-    expect(mutationCount).toBe(0);
-  });
 });
 
 test.describe('No-flicker: context panel sections use dedup guards', () => {

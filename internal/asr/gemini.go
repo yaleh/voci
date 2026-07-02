@@ -26,6 +26,7 @@ Similarly, if the audio says "run the vocal command" and known terms include "vo
 
 Known technical terms: {ENTITIES_PLACEHOLDER}
 
+{SESSION_PLACEHOLDER}
 Complete these two steps and return ONLY this JSON (no other text):
 1. Transcribe the audio, preserving ALL known technical terms EXACTLY as listed (case-sensitive)
 2. Rewrite the transcript into a clean, well-formed instruction (same language; do NOT translate; do NOT add unstated content; do NOT pick specific targets the speaker did not name; if genuinely too vague, start with [ambiguous])
@@ -208,6 +209,21 @@ func TranscribeGemini(ctx context.Context, key, audioPath, apiURL, language, mod
 	return result.Candidates[0].Content.Parts[0].Text
 }
 
+// extractSessionSection extracts the "## Claude Code Session" section from a hint string.
+// Returns the section body (without the header) up to the next "## " header or end of string.
+// Returns "" if no such section is found.
+func extractSessionSection(hint string) string {
+	idx := strings.Index(hint, "## Claude Code Session\n")
+	if idx < 0 {
+		return ""
+	}
+	body := hint[idx+len("## Claude Code Session\n"):]
+	if next := strings.Index(body, "\n## "); next >= 0 {
+		body = body[:next]
+	}
+	return strings.TrimSpace(body)
+}
+
 // ExtractEntities parses a hint string and returns canonical entity names from
 // "## Known Entities" or "## Known Entities (dynamic)" sections.
 // Each line of the form "- spoken: Canonical" contributes the right-hand side (canonical form).
@@ -271,6 +287,15 @@ func TranscribeMerged(ctx context.Context, key, audioPath, hint, language, model
 	// Fill the prompt template.
 	entityStr := strings.Join(entities, ", ")
 	prompt := strings.ReplaceAll(mergedPromptTemplate, "{ENTITIES_PLACEHOLDER}", entityStr)
+
+	// Inject session context into the merged prompt (V1 strategy).
+	sessionSection := extractSessionSection(hint)
+	if sessionSection != "" {
+		prompt = strings.ReplaceAll(prompt, "{SESSION_PLACEHOLDER}",
+			"Session context (recently edited files and commands):\n"+sessionSection)
+	} else {
+		prompt = strings.ReplaceAll(prompt, "{SESSION_PLACEHOLDER}", "")
+	}
 
 	// Read audio file.
 	audioData, err := os.ReadFile(audioPath)

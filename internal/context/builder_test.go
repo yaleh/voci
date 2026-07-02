@@ -28,34 +28,6 @@ func TestBuildContextReturnsString(t *testing.T) {
 	// Just ensure it doesn't panic and returns a string
 }
 
-func TestBuildContextReadsBacklogTasks(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeTasksDir(t, tmpDir)
-
-	taskContent := `---
-id: TASK-1
-title: Fix login bug
-status: 'Basic: In Progress'
----
-
-## Description
-Fix the login bug.
-`
-	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
-	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	result := BuildContext(tmpDir, func(_ string) string { return "" })
-
-	if !strings.Contains(result, "TASK-1") {
-		t.Errorf("expected TASK-1 in result, got: %q", result)
-	}
-	if !strings.Contains(result, "Fix login bug") {
-		t.Errorf("expected 'Fix login bug' in result, got: %q", result)
-	}
-}
-
 func TestBuildContextReadsCLAUDEMd(t *testing.T) {
 	tmpDir := t.TempDir()
 	makeTasksDir(t, tmpDir)
@@ -106,105 +78,7 @@ func TestBuildContextEmptyBacklog(t *testing.T) {
 	_ = result
 }
 
-func TestBuildContextKnownEntitiesSection(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeTasksDir(t, tmpDir)
-
-	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
-	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
-	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	result := BuildContext(tmpDir, func(_ string) string { return "" })
-	if !strings.Contains(result, "## Known Entities") {
-		t.Errorf("expected '## Known Entities' in result, got: %q", result)
-	}
-}
-
-func TestBuildContextKnownEntitiesHasTaskID(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeTasksDir(t, tmpDir)
-
-	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
-	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
-	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	result := BuildContext(tmpDir, func(_ string) string { return "" })
-	if !strings.Contains(result, "task one: TASK-1") {
-		t.Errorf("expected 'task one: TASK-1' in Known Entities, got: %q", result)
-	}
-}
-
-func TestBuildContextKnownEntitiesHasProjectName(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeTasksDir(t, tmpDir)
-
-	result := BuildContext(tmpDir, func(_ string) string { return "" })
-	if !strings.Contains(result, "vocal: voci") {
-		t.Errorf("expected 'vocal: voci' in Known Entities, got: %q", result)
-	}
-}
-
-func TestBuildContextKnownEntitiesHasPackagePaths(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeTasksDir(t, tmpDir)
-
-	result := BuildContext(tmpDir, func(_ string) string { return "" })
-	for _, pkg := range []string{"internal/pipeline", "internal/context", "internal/asr"} {
-		if !strings.Contains(result, pkg) {
-			t.Errorf("expected %q in Known Entities, got: %q", pkg, result)
-		}
-	}
-}
-
-func TestBuildContextKnownEntitiesBeforeActiveTasks(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeTasksDir(t, tmpDir)
-
-	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
-	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
-	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	result := BuildContext(tmpDir, func(_ string) string { return "" })
-	idxEntities := strings.Index(result, "## Known Entities")
-	idxTasks := strings.Index(result, "## Active Tasks")
-	if idxEntities < 0 {
-		t.Fatal("'## Known Entities' not found")
-	}
-	if idxTasks < 0 {
-		t.Fatal("'## Active Tasks' not found")
-	}
-	if idxEntities >= idxTasks {
-		t.Errorf("expected '## Known Entities' before '## Active Tasks', got positions %d and %d", idxEntities, idxTasks)
-	}
-}
-
 // ---- Increment 1: Source interface + plugin registration ----
-
-func TestSourceInterfaceBacklog(t *testing.T) {
-	tmpDir := t.TempDir()
-	makeTasksDir(t, tmpDir)
-
-	taskContent := "---\nid: TASK-1\ntitle: Fix login bug\nstatus: 'Basic: In Progress'\n---\n"
-	taskFile := filepath.Join(tmpDir, "backlog", "tasks", "task-1.md")
-	if err := os.WriteFile(taskFile, []byte(taskContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	src := &BacklogSource{}
-	snippet, prov := src.Fetch(tmpDir)
-	if snippet == "" {
-		t.Error("expected non-empty snippet from BacklogSource")
-	}
-	if prov != "backlog" {
-		t.Errorf("expected provenance 'backlog', got %q", prov)
-	}
-}
 
 func TestSourceInterfaceClaudeMd(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -242,8 +116,6 @@ func TestBuilderResultHasAstHint(t *testing.T) {
 	makeTasksDir(t, tmpDir)
 
 	b := &Builder{}
-	b.Register(&KnownEntitiesSource{})
-	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: func() string { return "abc add auth\n" }})
 
@@ -258,8 +130,6 @@ func TestBuilderResultHasFullContext(t *testing.T) {
 	makeTasksDir(t, tmpDir)
 
 	b := &Builder{}
-	b.Register(&KnownEntitiesSource{})
-	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: func() string { return "" }})
 
@@ -274,13 +144,11 @@ func TestBuilderResultHasProvenance(t *testing.T) {
 	makeTasksDir(t, tmpDir)
 
 	b := &Builder{}
-	b.Register(&KnownEntitiesSource{})
-	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: func() string { return "abc\n" }})
 
 	result := b.Build(tmpDir)
-	for _, key := range []string{"backlog", "claude.md", "git"} {
+	for _, key := range []string{"claude.md", "git"} {
 		if _, ok := result.Provenance[key]; !ok {
 			t.Errorf("expected Provenance to have key %q", key)
 		}
@@ -294,8 +162,6 @@ func TestBuildCachedWritesFile(t *testing.T) {
 	makeTasksDir(t, tmpDir)
 
 	b := &Builder{}
-	b.Register(&KnownEntitiesSource{})
-	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: func() string { return "" }})
 
@@ -319,7 +185,7 @@ func TestBuildCachedReadsCache(t *testing.T) {
 	cached := Result{
 		AsrHint:    "cached_sentinel_hint",
 		FullContext: "## Project Context\ncached",
-		Provenance: map[string]string{"backlog": "x", "claude.md": "y", "git": "z"},
+		Provenance: map[string]string{"claude.md": "y", "git": "z"},
 	}
 	cf := struct {
 		Result    Result    `json:"result"`
@@ -331,34 +197,12 @@ func TestBuildCachedReadsCache(t *testing.T) {
 	}
 
 	b := &Builder{}
-	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: func() string { return "" }})
 
 	result := b.BuildCached(tmpDir)
 	if result.AsrHint != "cached_sentinel_hint" {
 		t.Errorf("expected cached AsrHint 'cached_sentinel_hint', got %q", result.AsrHint)
-	}
-}
-
-// ---- TASK-10: filler-word spoken variants ----
-
-func TestBuildKnownEntitiesHasFunctionExpansions(t *testing.T) {
-	result := buildKnownEntities(nil)
-
-	// Filler-word variants
-	if !strings.Contains(result, "build a context: BuildContext") {
-		t.Errorf("expected 'build a context: BuildContext' in output, got: %q", result)
-	}
-	if !strings.Contains(result, "run a hinted: RunHinted") {
-		t.Errorf("expected 'run a hinted: RunHinted' in output, got: %q", result)
-	}
-	// Original entries preserved
-	if !strings.Contains(result, "build context: BuildContext") {
-		t.Errorf("expected 'build context: BuildContext' in output, got: %q", result)
-	}
-	if !strings.Contains(result, "run hinted: RunHinted") {
-		t.Errorf("expected 'run hinted: RunHinted' in output, got: %q", result)
 	}
 }
 
@@ -390,19 +234,15 @@ func TestBuildContextWithSource_CustomSrc_SnippetIncluded(t *testing.T) {
 	}
 }
 
-func TestBuildContextWithSource_KnownEntitiesPresent(t *testing.T) {
-	dir := t.TempDir()
-	result := BuildContextWithSource(dir, nil, noopGit)
-	if !strings.Contains(result, "## Known Entities") {
-		t.Errorf("expected ## Known Entities in hint, got: %s", result)
-	}
-}
-
 // ---- Backward compat ----
 
 func TestBuildContextBackwardCompat(t *testing.T) {
 	tmpDir := t.TempDir()
 	makeTasksDir(t, tmpDir)
+	// Without backlog source, we need at least a CLAUDE.md to produce non-empty context
+	if err := os.WriteFile(filepath.Join(tmpDir, "CLAUDE.md"), []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	result := BuildContext(tmpDir, nil)
 	if result == "" {
@@ -431,7 +271,7 @@ func TestBuildCached_CustomTTL_BypassesStaleCache(t *testing.T) {
 	}
 
 	b := &Builder{CacheTTL: 1 * time.Millisecond}
-	b.Register(&KnownEntitiesSource{})
+	b.Register(&ClaudeMdSource{})
 
 	result := b.BuildCached(tmpDir)
 	if result.AsrHint == "stale_hint" {
@@ -499,9 +339,12 @@ func TestBuildContextWithSourceAndTuning_AppliesCacheTTL(t *testing.T) {
 func TestBuildContextWithSourceAndTuning_ReturnsHint(t *testing.T) {
 	dir := t.TempDir()
 	makeTasksDir(t, dir)
-	result := BuildContextWithSourceAndTuning(dir, nil, noopGit, BuilderTuning{})
-	if !strings.Contains(result, "## Known Entities") {
-		t.Errorf("expected ## Known Entities in hint, got: %s", result)
+	gitWithLog := func(_ string) string { return "abc add auth\n" }
+	result := BuildContextWithSourceAndTuning(dir, nil, gitWithLog, BuilderTuning{})
+	// After removing KnownEntitiesSource, the hint should still contain GitLog
+	// output header (Recent Commits) from the registered sources.
+	if !strings.Contains(result, "## Recent Commits") {
+		t.Errorf("expected ## Recent Commits in hint, got: %s", result)
 	}
 }
 

@@ -113,18 +113,15 @@ test.describe('C-class resolveConfig() (mocked, TASK-73)', () => {
     await page.waitForLoadState('networkidle');
 
     const cfg = await page.evaluate(() => (window as any).__voiceTest.getCConfig());
-    // All 7 keys present
+    // All 4 keys present
     const keys = Object.keys(cfg).sort();
     expect(keys).toEqual([
-      'contextPollMs', 'entitySlice', 'localMsgCap',
-      'postEmitDelayMs', 'statusHideMs', 'taskListSlice', 'taskPillSlice',
+      'contextPollMs', 'localMsgCap',
+      'postEmitDelayMs', 'statusHideMs',
     ].sort());
     // Default values
     expect(cfg.contextPollMs).toBe(5000);
     expect(cfg.statusHideMs).toBe(2000);
-    expect(cfg.entitySlice).toBe(6);
-    expect(cfg.taskPillSlice).toBe(4);
-    expect(cfg.taskListSlice).toBe(6);
     expect(cfg.localMsgCap).toBe(40);
     expect(cfg.postEmitDelayMs).toBe(600);
   });

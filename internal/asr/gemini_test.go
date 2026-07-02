@@ -562,3 +562,77 @@ func TestGeminiChat_DecodeError(t *testing.T) {
 		t.Errorf("error should mention 'decode', got: %v", err)
 	}
 }
+
+// ---- Phase C: extractSessionSection ----
+
+func TestExtractSessionSection_WithSection(t *testing.T) {
+	hint := "## Known Entities (dynamic)\n- builder.go: builder.go\n\n## Claude Code Session\n- editing: builder.go\n- ran: go test\n\n## Next Section\n- something\n"
+	got := extractSessionSection(hint)
+	if !strings.Contains(got, "builder.go") {
+		t.Errorf("expected builder.go in session section, got: %q", got)
+	}
+	if strings.Contains(got, "## Next") {
+		t.Errorf("session section should not contain '## Next', got: %q", got)
+	}
+}
+
+func TestExtractSessionSection_WithoutSection(t *testing.T) {
+	hint := "## Known Entities (dynamic)\n- builder.go: builder.go\n\n## Other Section\n- something\n"
+	got := extractSessionSection(hint)
+	if got != "" {
+		t.Errorf("expected empty string, got: %q", got)
+	}
+}
+
+func TestTranscribeMerged_PromptIncludesSessionContext(t *testing.T) {
+	innerJSON := `{"transcript":"ok","rewritten":"ok"}`
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiOKResponse(innerJSON))
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	wavPath := writeTempWav(t)
+	hint := "## Claude Code Session\n- editing: recorder.src.js\n- ran: go test\n"
+	_, err := TranscribeMerged(context.Background(), "key", wavPath, hint, "", "", []string{"voci"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	bodyStr := string(capturedBody)
+	if !strings.Contains(bodyStr, "recorder.src.js") {
+		t.Errorf("request body should contain recorder.src.js; got: %q", bodyStr)
+	}
+}
+
+func TestTranscribeMerged_PromptNoSessionSection_Graceful(t *testing.T) {
+	innerJSON := `{"transcript":"ok","rewritten":"ok"}`
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(geminiOKResponse(innerJSON))
+	}))
+	defer srv.Close()
+
+	old := geminiMergedTestBaseURL
+	geminiMergedTestBaseURL = srv.URL
+	defer func() { geminiMergedTestBaseURL = old }()
+
+	wavPath := writeTempWav(t)
+	hint := "## Known Entities (dynamic)\n- voci: voci\n"
+	_, err := TranscribeMerged(context.Background(), "key", wavPath, hint, "", "", []string{"voci"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	bodyStr := string(capturedBody)
+	if strings.Contains(bodyStr, "{SESSION_PLACEHOLDER}") {
+		t.Errorf("request body should NOT contain literal SESSION_PLACEHOLDER; got: %q", bodyStr)
+	}
+}
+

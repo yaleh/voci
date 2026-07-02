@@ -2,15 +2,12 @@ package context
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
 )
 
 // Source contributes context snippets.
@@ -110,20 +107,9 @@ func (b *Builder) writeCache(root string, result Result) {
 func (b *Builder) assembleAsrHint(snippets map[string]string) string {
 	var sb strings.Builder
 
-	// Known Entities first (no leading newline)
-	if s, ok := snippets["entities"]; ok && s != "" {
-		sb.WriteString(s)
-	}
-
-	// Active Tasks (with leading newline separator)
-	if s, ok := snippets["backlog"]; ok && s != "" {
-		sb.WriteString("\n## Active Tasks\n")
-		sb.WriteString(s)
-	}
-
 	// CLAUDE.md
 	if s, ok := snippets["claude.md"]; ok && s != "" {
-		sb.WriteString("\n## CLAUDE.md\n")
+		sb.WriteString("## CLAUDE.md\n")
 		sb.WriteString(s)
 		sb.WriteString("\n")
 	}
@@ -135,7 +121,7 @@ func (b *Builder) assembleAsrHint(snippets map[string]string) string {
 	}
 
 	// Append any extra snippets not covered above (e.g. session, custom sources)
-	handled := map[string]bool{"entities": true, "backlog": true, "claude.md": true, "git": true}
+	handled := map[string]bool{"claude.md": true, "git": true}
 	for name, s := range snippets {
 		if !handled[name] && s != "" {
 			sb.WriteString("\n")
@@ -151,11 +137,6 @@ func (b *Builder) assembleFullContext(snippets map[string]string) string {
 	var sb strings.Builder
 	sb.WriteString("## Project Context\n")
 
-	if s, ok := snippets["backlog"]; ok && s != "" {
-		sb.WriteString("\n### Backlog Tasks\n")
-		sb.WriteString(s)
-	}
-
 	if s, ok := snippets["claude.md"]; ok && s != "" {
 		sb.WriteString("\n### Project Instructions (CLAUDE.md)\n")
 		sb.WriteString(s)
@@ -167,68 +148,10 @@ func (b *Builder) assembleFullContext(snippets map[string]string) string {
 		sb.WriteString(s)
 	}
 
-	if s, ok := snippets["entities"]; ok && s != "" {
-		sb.WriteString("\n### Known Entities\n")
-		sb.WriteString(s)
-	}
-
 	return sb.String()
 }
 
 // ---- Concrete Source implementations ----
-
-// taskFrontmatter holds frontmatter fields from a task markdown file.
-type taskFrontmatter struct {
-	ID     string `yaml:"id"`
-	Title  string `yaml:"title"`
-	Status string `yaml:"status"`
-}
-
-// BacklogSource reads backlog/tasks/*.md frontmatter.
-type BacklogSource struct{}
-
-func (s *BacklogSource) Name() string { return "backlog" }
-
-func (s *BacklogSource) Fetch(root string) (string, string) {
-	taskGlob := filepath.Join(root, "backlog", "tasks", "*.md")
-	matches, _ := filepath.Glob(taskGlob)
-
-	var taskLines []string
-	for _, m := range matches {
-		data, err := os.ReadFile(m)
-		if err != nil {
-			continue
-		}
-		content := string(data)
-		if strings.HasPrefix(content, "---") {
-			end := strings.Index(content[3:], "---")
-			if end >= 0 {
-				yamlContent := content[3 : end+3]
-				var fm taskFrontmatter
-				if err := yaml.Unmarshal([]byte(yamlContent), &fm); err == nil {
-					if fm.ID != "" {
-						line := "- " + fm.ID + ": " + fm.Title
-						if fm.Status != "" {
-							line += " [" + fm.Status + "]"
-						}
-						line += "\n"
-						taskLines = append(taskLines, line)
-					}
-				}
-			}
-		}
-	}
-
-	if len(taskLines) == 0 {
-		return "", "backlog"
-	}
-
-	var sb strings.Builder
-	for _, line := range taskLines {
-		sb.WriteString(line)
-	}
-	return sb.String(), "backlog"
-}
 
 // ClaudeMdSource reads CLAUDE.md.
 type ClaudeMdSource struct{}
@@ -261,89 +184,6 @@ func (s *GitLogSource) Fetch(root string) (string, string) {
 	return log, "git"
 }
 
-// KnownEntitiesSource generates the Known Entities section by reading task IDs from backlog.
-type KnownEntitiesSource struct{}
-
-func (s *KnownEntitiesSource) Name() string { return "entities" }
-
-func (s *KnownEntitiesSource) Fetch(root string) (string, string) {
-	taskGlob := filepath.Join(root, "backlog", "tasks", "*.md")
-	matches, _ := filepath.Glob(taskGlob)
-
-	var taskIDs []string
-	for _, m := range matches {
-		data, err := os.ReadFile(m)
-		if err != nil {
-			continue
-		}
-		content := string(data)
-		if strings.HasPrefix(content, "---") {
-			end := strings.Index(content[3:], "---")
-			if end >= 0 {
-				yamlContent := content[3 : end+3]
-				var fm taskFrontmatter
-				if err := yaml.Unmarshal([]byte(yamlContent), &fm); err == nil {
-					if fm.ID != "" {
-						taskIDs = append(taskIDs, fm.ID)
-					}
-				}
-			}
-		}
-	}
-
-	return buildKnownEntities(taskIDs), "entities"
-}
-
-// ---- Known Entities helpers ----
-
-var numberWord = map[int]string{
-	1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
-	6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten",
-}
-
-// spokenTaskID converts "TASK-N" to "task N_as_word" for N in 1..10.
-func spokenTaskID(id string) string {
-	if !strings.HasPrefix(id, "TASK-") {
-		return ""
-	}
-	numStr := strings.TrimPrefix(id, "TASK-")
-	n, err := strconv.Atoi(numStr)
-	if err != nil {
-		return ""
-	}
-	word, ok := numberWord[n]
-	if !ok {
-		return ""
-	}
-	return fmt.Sprintf("task %s", word)
-}
-
-// buildKnownEntities creates the ## Known Entities section for the hint.
-func buildKnownEntities(taskIDs []string) string {
-	var sb strings.Builder
-	sb.WriteString("## Known Entities\n")
-	sb.WriteString("- vocal: voci\n")
-	for _, id := range taskIDs {
-		spoken := spokenTaskID(id)
-		if spoken != "" {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", spoken, id))
-		}
-	}
-	sb.WriteString("- inter nul pipeline: internal/pipeline\n")
-	sb.WriteString("- inter nul context: internal/context\n")
-	sb.WriteString("- inter nul a s r: internal/asr\n")
-	sb.WriteString("- inter nul config: internal/config\n")
-	sb.WriteString("- inter nul ollama: internal/ollama\n")
-	sb.WriteString("- run hinted: RunHinted\n")
-	sb.WriteString("- run a hinted: RunHinted\n")
-	sb.WriteString("- build context: BuildContext\n")
-	sb.WriteString("- build a context: BuildContext\n")
-	sb.WriteString("- c l i: CLI\n")
-	sb.WriteString("- dash dash file: --file\n")
-	sb.WriteString("- dash dash iterate: --iterate\n")
-	return sb.String()
-}
-
 // ---- Backward compatibility ----
 
 // GitRunner is a function that returns git log output.
@@ -370,9 +210,7 @@ func defaultBuilder(root string, gitRunner GitRunner) *Builder {
 	}
 
 	b := &Builder{}
-	b.Register(&KnownEntitiesSource{})
 	b.Register(&DynamicEntitiesSource{})
-	b.Register(&BacklogSource{})
 	b.Register(&ClaudeMdSource{})
 	b.Register(&GitLogSource{Runner: runner})
 	return b

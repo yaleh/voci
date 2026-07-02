@@ -1,7 +1,7 @@
 ---
 name: voci-listen
 description: "Arms a persistent Monitor with voci serve --share --serve-port 0 (OS-assigned port + Cloudflare Quick Tunnel + Bearer auth). voci serve writes its own per-session lock file to --lock-dir, removes it on exit, and emits a startup JSON event (type=startup) to stdout for Monitor display — no separate background start or status poll needed. Monitor command is a bare voci serve with no shell pipeline. Single-instance: sweeps stale voci-listen Monitor tasks before arming. Monitor description is self-contained: on startup event arrival display URL/token to user; on voice event extract 'rewritten' and execute inline. Stops when ~/.voci/.listen-stop sentinel is present."
-allowed-tools: Bash, Read, Monitor, TaskStop
+allowed-tools: Bash, Read, Monitor
 contracts:
   - grep: "Monitor(persistent=true"
     target: self
@@ -18,8 +18,6 @@ contracts:
   - grep: ".listen-stop"
     target: self
   - grep: "rewritten"
-    target: self
-  - grep: "TaskStop"
     target: self
   - grep: "listen-preflight"
     target: self
@@ -77,16 +75,15 @@ data EventKind = VoiceEvent String         -- JSON line with Rewritten field →
 listenLoop() = coldStart()
 
 coldStart() = {
-  -- Step 1: Stop any stale voci listen Monitor tasks via TaskStop.
-  -- Stop any known stale Monitor task IDs from previous runs.
-  -- If no known task IDs: skip.
-
-  -- Step 2: Run listen-preflight as a single Bash call.
+  -- Step 1: Run listen-preflight as a single Bash call. No TaskStop step —
+  -- a live voci serve yields "reconnect"; a dead one already ended its own
+  -- Monitor (the Monitor terminates when its child process exits). The .lock
+  -- file (PID+port) is the sole liveness source.
   -- Output is a single line: "stopped", "coldstart <cc_pid>", or "reconnect <local> <share> <token>".
   PREFLIGHT = Bash("voci listen-preflight --lock-dir ~/.voci")
   LINE = first line of PREFLIGHT output
 
-  -- Step 3: Dispatch on output.
+  -- Step 2: Dispatch on output.
   switch (first word of LINE):
     case "stopped":
       return: Stopped
@@ -140,12 +137,9 @@ extractInstruction(line) =
 ### coldStart (1 Bash + 1 Monitor)
 
 ```bash
-# Step 1: Stop stale Monitor tasks (best-effort).
-# If we have a known task ID from a prior run, stop it.
-# Track stale Monitor task IDs via variable — no persistent file needed.
-
-# Step 2: Run listen-preflight — all lock sweeps, stop-sentinel check,
-# ancestry resolution, and reconnect logic in one call.
+# Run listen-preflight — all lock sweeps, stop-sentinel check, ancestry
+# resolution, and reconnect logic in one call. No TaskStop step: a live voci
+# serve yields "reconnect"; a dead one already ended its own Monitor.
 PREFLIGHT=$(voci listen-preflight --lock-dir ~/.voci)
 echo "[voci-listen] preflight: $PREFLIGHT"
 

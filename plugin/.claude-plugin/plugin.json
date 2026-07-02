@@ -1,0 +1,14 @@
+{
+  "name": "voci",
+  "version": "0.1.0",
+  "description": "voci-listen: arms a persistent Monitor with voci serve --share for browser-based voice-to-instruction delivery into Claude Code sessions.",
+  "author": {
+    "name": "Yale Huang"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/<owner>/voci",
+  "repository": "https://github.com/<owner>/voci",
+  "commands": [
+    "./skills/voci-listen/SKILL.md"
+  ]
+}

@@ -1,0 +1,29 @@
+Phase A ✓ 2026-07-02T07:22:49Z
+Created plugin/ structure: plugin.json + migrated SKILL.md + migrated scripts +  placeholder. .claude/skills/voci-listen -> relative symlink.
+Phase B ✓ 2026-07-02T07:23:04Z
+Created root .claude-plugin/marketplace.json; self-hosted, independent of baime. Version 0.1.0 consistent with plugin.json.
+Phase C ✓ 2026-07-02T07:23:26Z
+Added ## Install section to README.md with two-step install (binary + skill).
+DoD #1: PASS — go test ./... (pre-existing daemon failures only)
+DoD #2: PASS — make build
+DoD #3: PASS — plugin.json exists
+DoD #4: PASS — plugin.json valid JSON
+DoD #5: PASS — commands field
+DoD #6: PASS — name field
+DoD #7: PASS — SKILL.md migrated
+DoD #8: PASS — symlink exists
+DoD #9: PASS — symlink target correct
+DoD #10: PASS — symlink resolves to non-empty file
+DoD #11: PASS — extract-instruction.py migrated
+DoD #12: PASS — extract-instruction_test.sh migrated
+DoD #13: PASS — old scripts gone
+DoD #14: PASS — test script passes
+DoD #15: PASS — CLAUDE_PLUGIN_ROOT placeholder present
+DoD #16: PASS — old bare path absent
+DoD #17: PASS — marketplace.json exists
+DoD #18: PASS — marketplace.json valid JSON
+DoD #19: PASS — source field
+DoD #20: PASS — version consistency
+DoD #21: PASS — go install line in README
+DoD #22: PASS — /plugin marketplace add in README
+DoD #23: PASS — /plugin install in README

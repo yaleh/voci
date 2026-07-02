@@ -222,7 +222,7 @@ re-arm
 LINE="$1"   # raw line from voci serve stdout
 
 # Parse JSON and extract the Rewritten instruction field (see scripts/extract-instruction.py).
-INSTRUCTION=$(echo "$LINE" | python3 scripts/extract-instruction.py)
+INSTRUCTION=$(echo "$LINE" | python3 "${CLAUDE_PLUGIN_ROOT}/skills/voci-listen/scripts/extract-instruction.py")
 
 echo "[voci-listen] instruction: $INSTRUCTION"
 ```

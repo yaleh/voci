@@ -50,3 +50,30 @@ See `backlog/tasks/` (`backlog task list --plain`). The build order:
 Greenfield. Start with the Prototype epic — it needs no Claude Code integration
 and validates whether contextual ASR + iterative rewrite actually improves
 instruction accuracy.
+
+## Install
+
+voci-listen requires two independent installation steps. Both are required;
+order does not matter.
+
+### 1. Install the `voci` binary
+
+```bash
+go install github.com/yaleh/voci/cmd/voci@latest
+```
+
+This installs the `voci` binary to `~/go/bin/voci`. It is the runtime
+dependency that voci-listen invokes (`voci serve`, `voci listen-preflight`).
+
+### 2. Install the voci-listen skill
+
+From any Claude Code project where you want voice input:
+
+```
+/plugin marketplace add <voci-repo>
+/plugin install voci-listen@voci
+```
+
+This installs only the skill instructions and helper scripts. It does **not**
+install the `voci` binary — if step 1 was skipped, the skill will fail because
+the `voci` command is not found.

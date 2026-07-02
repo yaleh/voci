@@ -1,0 +1,21 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "voci",
+  "description": "voci: browser-based voice-to-instruction delivery for Claude Code sessions",
+  "owner": {
+    "name": "Yale Huang",
+    "url": "https://github.com/<owner>"
+  },
+  "plugins": [
+    {
+      "name": "voci-listen",
+      "source": "./plugin",
+      "version": "0.1.0",
+      "description": "Arms a persistent Monitor with voci serve --share for browser-based voice-to-instruction delivery into Claude Code sessions.",
+      "license": "MIT",
+      "homepage": "https://github.com/<owner>/voci",
+      "category": "productivity",
+      "tags": ["voice", "asr", "monitor"]
+    }
+  ]
+}

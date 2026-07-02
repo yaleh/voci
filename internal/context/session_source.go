@@ -422,6 +422,11 @@ type SessionSource struct {
 // Name returns "session".
 func (s *SessionSource) Name() string { return "session" }
 
+// ResolveJSONLPath is the exported wrapper around resolveJSONLPath.
+func (s *SessionSource) ResolveJSONLPath(root string) string {
+	return s.resolveJSONLPath(root)
+}
+
 // resolveJSONLPath resolves the session JSONL file path using the priority:
 // jsonlPathFn > sessionIDFn/~/.voci/session > CLAUDE_CODE_SESSION_ID env.
 // Returns "" when no session can be resolved.

@@ -859,3 +859,36 @@ func TestSessionSource_Dialogue_NoSession(t *testing.T) {
 		t.Errorf("expected nil when no session, got %+v", turns)
 	}
 }
+
+func TestResolveJSONLPath_ExportedWrapsUnexported(t *testing.T) {
+	// Verify the exported ResolveJSONLPath delegates to resolveJSONLPath.
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	id := "test-jsonl-path"
+	t.Setenv("CLAUDE_CODE_SESSION_ID", id)
+
+	root := "/my/project/path"
+	hash := strings.ReplaceAll(root, "/", "-")
+	dir := filepath.Join(tmpHome, ".claude", "projects", hash)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(dir, id+".jsonl")
+	if err := os.WriteFile(expected, []byte("{}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := &SessionSource{}
+	got := src.ResolveJSONLPath(root)
+	if got != expected {
+		t.Errorf("ResolveJSONLPath(%q) = %q, want %q", root, got, expected)
+	}
+}
+
+func TestResolveJSONLPath_NoSession(t *testing.T) {
+	os.Unsetenv("CLAUDE_CODE_SESSION_ID")
+	src := &SessionSource{sessionIDFn: func() string { return "" }}
+	if got := src.ResolveJSONLPath("/root"); got != "" {
+		t.Errorf("expected empty string when no session, got %q", got)
+	}
+}

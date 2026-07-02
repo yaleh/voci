@@ -74,6 +74,10 @@ type Server struct {
 	// The resolved net.Addr is passed so callers can discover the assigned port
 	// when --serve-port 0 is used for OS-assigned ephemeral ports.
 	OnListening func(net.Addr)
+	// ActivityPathFn, when non-nil, returns the path to the Claude Code session
+	// JSONL file for the /api/activity SSE endpoint. If nil or if the function
+	// returns "", the endpoint sends idle heartbeat events every 5 seconds.
+	ActivityPathFn func() string
 	// VADThreshold and MinAudioMs are D-class frontend VAD tuning values, sourced
 	// from config.Config and served read-only to the browser via /api/config.
 	VADThreshold float64
@@ -87,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/voice/emit", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleEmit)))
 	mux.Handle("/api/context", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleContext)))
 	mux.Handle("/api/config", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleConfig)))
+	mux.Handle("/api/activity", auth.BearerMiddleware(s.BearerToken, http.HandlerFunc(s.handleActivity)))
 	sub, _ := fs.Sub(embeddedFS, "web")
 	mux.Handle("/", staticHandler(sub))
 	return mux

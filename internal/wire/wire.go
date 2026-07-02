@@ -286,7 +286,8 @@ func run(
 			hintedFn = pipeline.RunHinted
 		}
 		// --serve path intentionally skips Rewrite (RewriteFn stays nil so server.go's nil-guard skips it)
-		ccAdapter := adapter.NewClaudeCodeAdapterWithSource(os.Getenv("TMUX_PANE"), "", sessionSourceFromConfig(cfg))
+		sessSource := sessionSourceFromConfig(cfg)
+		ccAdapter := adapter.NewClaudeCodeAdapterWithSource(os.Getenv("TMUX_PANE"), "", sessSource)
 		serveTuning := builderTuningFromConfig(cfg)
 		serveHint := func() string {
 			cwd, err := os.Getwd()
@@ -324,6 +325,13 @@ func run(
 			ChatFn:       chatFn,
 			APIKey:       cfg.ASRAPIKey,
 			Language:     cfg.Language,
+			ActivityPathFn: func() string {
+				cwd, err := os.Getwd()
+				if err != nil {
+					return ""
+				}
+				return sessSource.ResolveJSONLPath(cwd)
+			},
 			EventWriter:  os.Stdout,
 			VADThreshold: cfg.VADThreshold,
 			MinAudioMs:   cfg.MinAudioMs,

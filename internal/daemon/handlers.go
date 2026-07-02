@@ -15,6 +15,25 @@ import (
 	"github.com/yaleh/voci/internal/intent/model"
 )
 
+// actSessionEntry is a minimal JSONL entry struct local to the daemon package,
+// avoiding an import cycle with internal/context.
+type actSessionEntry struct {
+	IsCompactSummary string         `json:"isCompactedSummary"`
+	PromptSource     string         `json:"promptSource"`
+	Message          actMessage     `json:"message"`
+}
+
+type actMessage struct {
+	Content json.RawMessage `json:"content"`
+}
+
+type actContentBlock struct {
+	Type  string          `json:"type"`
+	Name  string          `json:"name"`
+	Text  string          `json:"text"`
+	Input json.RawMessage `json:"input"`
+}
+
 // handleTranscribe runs the full ASR pipeline and returns ActionProposal JSON.
 // It does NOT write to EventWriter or EventPath — that is handleEmit's job.
 func (s *Server) handleTranscribe(w http.ResponseWriter, r *http.Request) {
@@ -190,4 +209,150 @@ func (s *Server) handleEmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleActivity serves the /api/activity SSE endpoint. It tails the Claude Code
+// session JSONL file (resolved via ActivityPathFn), pushing new tool calls and
+// assistant text to the browser in real time. When ActivityPathFn returns "",
+// it sends idle heartbeat events every 5 seconds and never closes the connection.
+func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
+	if _, ok := w.(http.Flusher); !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	path := ""
+	if s.ActivityPathFn != nil {
+		path = s.ActivityPathFn()
+	}
+
+	if path == "" {
+		s.activityHeartbeat(w, r)
+		return
+	}
+
+	s.activityTail(w, r, path)
+}
+
+// activityHeartbeat sends idle SSE events every 5 seconds. Used when no session
+// JSONL path is available.
+func (s *Server) activityHeartbeat(w http.ResponseWriter, r *http.Request) {
+	// Send initial idle event immediately so the client knows the connection is alive.
+	fmt.Fprintf(w, "event: idle\ndata: {}\n\n")
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			fmt.Fprintf(w, "event: idle\ndata: {}\n\n")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// activityTail polls the JSONL file every 500ms and emits SSE events for new
+// entries appended since the last read position.
+func (s *Server) activityTail(w http.ResponseWriter, r *http.Request, path string) {
+	var lastSize int64
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			fi, err := os.Stat(path)
+			if err != nil {
+				fmt.Fprintf(w, "event: idle\ndata: {}\n\n")
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+				continue
+			}
+
+			if fi.Size() <= lastSize {
+				continue
+			}
+
+			f, err := os.Open(path)
+			if err != nil {
+				fmt.Fprintf(w, "event: idle\ndata: {}\n\n")
+				if fl, ok := w.(http.Flusher); ok {
+					fl.Flush()
+				}
+				continue
+			}
+
+			if _, err := f.Seek(lastSize, io.SeekStart); err != nil {
+				f.Close()
+				continue
+			}
+
+			newData, err := io.ReadAll(io.LimitReader(f, fi.Size()-lastSize))
+			f.Close()
+			if err != nil {
+				continue
+			}
+			lastSize = fi.Size()
+
+			s.emitActivityLines(w, string(newData))
+
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// emitActivityLines parses new JSONL lines and emits SSE events for tool_use
+// and text blocks from assistant message content.
+func (s *Server) emitActivityLines(w http.ResponseWriter, chunk string) {
+	lines := strings.Split(chunk, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var entry actSessionEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.IsCompactSummary != "" || entry.PromptSource == "system" {
+			continue
+		}
+		if entry.Message.Content == nil {
+			continue
+		}
+
+		var blocks []actContentBlock
+		if err := json.Unmarshal(entry.Message.Content, &blocks); err != nil {
+			continue
+		}
+
+		for _, block := range blocks {
+			switch block.Type {
+			case "tool_use":
+				fmt.Fprintf(w, "event: tool_call\ndata: %s\n\n", block.Name)
+			case "text":
+				text := strings.ReplaceAll(block.Text, "\n", "\\n")
+				fmt.Fprintf(w, "event: assistant_text\ndata: %s\n\n", text)
+			}
+			if fl, ok := w.(http.Flusher); ok {
+				fl.Flush()
+			}
+		}
+	}
 }

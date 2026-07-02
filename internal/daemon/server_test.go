@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -919,5 +920,115 @@ func TestHandleTranscribe_FallbackReturnsHintedOutput(t *testing.T) {
 	if proposal.Rewritten != "hinted text" {
 		t.Errorf("Rewritten: want %q, got %q", "hinted text", proposal.Rewritten)
 	}
+}
+
+// ── /api/activity SSE endpoint ────────────────────────────
+
+func TestHandleActivity_RequiresTokenWhenSet(t *testing.T) {
+	srv := &Server{
+		BearerToken:    "secure-token",
+		ActivityPathFn: func() string { return "" },
+	}
+	h := srv.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 when token required, got %d", w.Code)
+	}
+}
+
+func TestHandleActivity_ContentTypeSSE(t *testing.T) {
+	srv := &Server{ActivityPathFn: func() string { return "" }}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "text/event-stream" {
+		t.Errorf("Content-Type: want text/event-stream, got %q", ct)
+	}
+}
+
+func TestHandleActivity_NoSession(t *testing.T) {
+	srv := &Server{ActivityPathFn: func() string { return "" }}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Read the first few bytes to verify we get an SSE stream with idle events.
+	buf := make([]byte, 4096)
+	timeout := time.After(1 * time.Second)
+	readDone := make(chan int)
+	go func() {
+		n, _ := resp.Body.Read(buf)
+		readDone <- n
+	}()
+	select {
+	case n := <-readDone:
+		body := string(buf[:n])
+		if !strings.Contains(body, "event: idle") {
+			t.Errorf("expected idle event, got body: %q", truncStr(body, 200))
+		}
+	case <-timeout:
+		t.Error("timeout waiting for SSE event")
+	}
+}
+
+func TestHandleActivity_StreamsToolCall(t *testing.T) {
+	dir := t.TempDir()
+	jsonlPath := filepath.Join(dir, "test.jsonl")
+
+	toolLine := `{"isCompacted":"",` +
+		`"message":{"content":[{"type":"tool_use","id":"1","name":"Read","input":{"file_path":"/test/file.go"}}]}}` + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(toolLine), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := &Server{ActivityPathFn: func() string { return jsonlPath }}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	buf := make([]byte, 4096)
+	timeout := time.After(2 * time.Second)
+	readDone := make(chan int)
+	go func() {
+		n, _ := resp.Body.Read(buf)
+		readDone <- n
+	}()
+	select {
+	case n := <-readDone:
+		body := string(buf[:n])
+		if !strings.Contains(body, "event: tool_call") {
+			t.Errorf("expected tool_call event, got body: %q", truncStr(body, 300))
+		}
+	case <-timeout:
+		t.Error("timeout waiting for tool_call event")
+	}
+}
+
+func truncStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 

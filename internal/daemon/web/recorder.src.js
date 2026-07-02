@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify';
   // Gates all subsequent API calls until a valid token is stored.
   var authRequired = false;
   var pollingStarted = false;
+  var activityStreamStarted = false;
 
   function getToken() {
     return localStorage.getItem(STORAGE_KEY) || '';
@@ -38,6 +39,11 @@ import DOMPurify from 'dompurify';
     pollingStarted = true;
     refreshContext();
     pollIntervalId = setInterval(refreshContext, C_CONFIG.contextPollMs);
+    // Defer activity stream connection by 10s so it never fires during E2E tests
+    // (each test runs ~2-5s). In production, the stream connects shortly after the
+    // page is fully settled. Tests that need the stream call connectActivityStream
+    // explicitly via window.__voiceTest.connectActivityStream().
+    setTimeout(function() { if (!activityStreamStarted) connectActivityStream(); }, 10000);
   }
 
   // Fetches D-class VAD tuning values once (not polled) and overrides the local
@@ -593,6 +599,8 @@ import DOMPurify from 'dompurify';
     injectMessages: function (msgs) {
       renderDialogue(msgs);
     },
+    // Trigger activity stream connection (normally deferred 2s after startPolling).
+    connectActivityStream: connectActivityStream,
     // Pure Markdown→sanitized-HTML transform (marked + DOMPurify), exposed so
     // frontend unit tests can assert rendering without a backend.
     mdToHtml: mdToHtml,
@@ -720,6 +728,74 @@ import DOMPurify from 'dompurify';
       }
     }
   });
+
+  // ── Activity Stream ─────────────────────────────────────
+
+  var activityFeed = document.getElementById('voci-activity-feed');
+
+  function handleActivityEvent(ev) {
+    if (!activityFeed) return;
+    var row = document.createElement('div');
+    row.className = 'voci-activity-row';
+    var now = new Date();
+    var time = pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+    var label = ev.event || 'unknown';
+    var data = (ev.data || '').trim();
+    if (data && data !== '{}') {
+      label = label + ': ' + data;
+    }
+    var elapsed = '';
+    if (activityFeed.firstChild) {
+      var firstTs = activityFeed.firstChild.dataset.timestamp;
+      if (firstTs) {
+        var secs = Math.floor((now - parseInt(firstTs, 10)) / 1000);
+        elapsed = ' ' + fmtTimer(secs);
+      }
+    }
+    row.dataset.timestamp = String(now.getTime());
+    row.innerHTML = '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;margin-right:8px;flex-shrink:0">' + esc(time) + '</span>' +
+      '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#d4a84a;margin-right:8px;flex-shrink:0">' + esc(label.split(':')[0]) + '</span>' +
+      '<span style="font-size:11px;color:#6a88a8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(label.split(':').slice(1).join(':').trim()) + '</span>' +
+      '<span style="font-family:JetBrains Mono,monospace;font-size:9.5px;color:#3d5070;margin-left:auto;flex-shrink:0">' + elapsed + '</span>';
+    activityFeed.appendChild(row);
+    // Keep only the last 50 rows.
+    while (activityFeed.children.length > 50) {
+      activityFeed.removeChild(activityFeed.firstChild);
+    }
+  }
+
+  function connectActivityStream() {
+    if (!activityFeed) return;
+    activityStreamStarted = true;
+    apiFetch('/api/activity')
+      .then(function(resp) {
+        if (!resp.ok || !resp.body) return;
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+        function pump() {
+          reader.read().then(function(result) {
+            if (result.done) return;
+            buffer += decoder.decode(result.value, { stream: true });
+            var lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            var currentEvent = '';
+            for (var i = 0; i < lines.length; i++) {
+              var line = lines[i];
+              if (line.startsWith('event: ')) {
+                currentEvent = line.slice(7).trim();
+              } else if (line.startsWith('data: ')) {
+                handleActivityEvent({ event: currentEvent, data: line.slice(6) });
+              }
+              // Empty lines are SSE separators; already handled by split.
+            }
+            pump();
+          }).catch(function() {});
+        }
+        pump();
+      })
+      .catch(function() {});
+  }
 
   // ── Init ─────────────────────────────────────────────────
 
